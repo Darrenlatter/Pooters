@@ -1,538 +1,2790 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Sparkles, Users, Trophy, Plus, LogOut, CheckCircle, 
-  Image as ImageIcon, Compass, Zap, X, Upload, Shield, 
-  Swords, Trash2, Key, Lock, UserPlus, Video, Film, Eye, Link as LinkIcon,
-  Camera, Play, Copy, Check, RefreshCw, AlertCircle
-} from 'lucide-react';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Pooters Scavenger Hunt</title>
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
 
-// --- INITIAL DEFAULT DATA ---
-const DEFAULT_TEAMS = [
-  { id: 'team_alpha', name: 'Alpha Pooters', color: 'bg-amber-600' },
-  { id: 'team_beta', name: 'Beta Pooters', color: 'bg-emerald-600' }
-];
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
 
-const DEFAULT_PLAYERS = [
-  { id: 'p1', displayName: 'Alice', secretCode: '1111', teamId: 'team_alpha' },
-  { id: 'p2', displayName: 'Bob', secretCode: '2222', teamId: 'team_alpha' },
-  { id: 'p3', displayName: 'Charlie', secretCode: '3333', teamId: 'team_beta' },
-  { id: 'p4', displayName: 'Diana', secretCode: '4444', teamId: 'team_beta' }
-];
+  <!-- React 18 & ReactDOM 18 UMD -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-const DEFAULT_TASKS = [
-  { id: 't1', title: 'The Grand Brew', points: 50, description: 'Find the weirdest specialty drink on a local menu and capture a team toast.', isTeamTask: true, p1Id: '', p2Id: '' },
-  { id: 't2', title: 'Living Statue', points: 40, description: 'Pose with a public statue or landmark in your best magical or heroic stance.', isTeamTask: true, p1Id: '', p2Id: '' },
-  { id: 'h1', title: 'Sprint Speed Duel', points: 30, description: '1v1 Face-off: First to record a 20-meter dash video wins the duel points!', isTeamTask: false, p1Id: 'p1', p2Id: 'p3' }
-];
+  <!-- Babel Standalone for zero-build JSX compilation in browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-const DEFAULT_PROGRESS = [
-  { 
-    id: 'prog_1',
-    teamId: 'team_alpha', 
-    taskId: 't1', 
-    userId: 'p1', 
-    userName: 'Alice', 
-    points: 50, 
-    note: 'Found some sparkly boba tea!', 
-    mediaUrl: 'https://images.unsplash.com/photo-1558857563-b371033873b8?auto=format&fit=crop&w=800&q=80', 
-    mediaType: 'image', 
-    timestamp: Date.now() - 3600000 
-  }
-];
+  <!-- Firebase JS SDK v10 Compat (App, Firestore, Storage) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 
-const SQUAD_COLORS = [
-  { label: 'Amber', value: 'bg-amber-600' },
-  { label: 'Emerald', value: 'bg-emerald-600' },
-  { label: 'Purple', value: 'bg-purple-600' },
-  { label: 'Rose', value: 'bg-rose-600' },
-  { label: 'Sky', value: 'bg-sky-600' }
-];
+  <style>
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .pb-safe {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .fade-in {
+      animation: fadeIn 0.2s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased selection:bg-amber-200">
+  <div id="root"></div>
 
-// Helper: Resize & compress image via HTML5 Canvas so it safely fits in localStorage
-const compressImageFile = (file, maxDimension = 800, quality = 0.75) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Failed to read image file.'));
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onerror = () => reject(new Error('Invalid image format.'));
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > maxDimension || height > maxDimension) {
-          if (width > height) {
-            height = Math.round((height * maxDimension) / width);
-            width = maxDimension;
-          } else {
-            width = Math.round((width * maxDimension) / height);
-            height = maxDimension;
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // =========================================================================
+    // 1. OPTIONAL HARDCODED FIREBASE CONFIG FOR GITHUB PAGES
+    // Paste your Firebase config fields below if you want all phones to auto-connect
+    // without needing to paste config in the Organizer Portal.
+    // =========================================================================
+    const HARDCODED_FIREBASE_CONFIG = {
+      apiKey: "",
+      authDomain: "",
+      projectId: "",
+      storageBucket: "",
+      messagingSenderId: "",
+      appId: ""
+    };
+
+    const ORGANIZER_PASSWORD = "pooters2026";
+    const LS_KEYS = {
+      FB_CONFIG: "pooters_gh_firebase_config_v1",
+      TEAMS: "pooters_gh_teams_v1",
+      PLAYERS: "pooters_gh_players_v1",
+      TASKS: "pooters_gh_tasks_v1",
+      PROGRESS: "pooters_gh_progress_v1",
+      SESSION_PLAYER: "pooters_gh_session_player_v1"
+    };
+
+    // =========================================================================
+    // 2. INITIAL DEFAULT DATA (Used in Local Demo Mode & Initial Cloud Seed)
+    // =========================================================================
+    const DEFAULT_TEAMS = [
+      { id: "team_alpha", name: "Alpha Pooters", color: "bg-amber-600" },
+      { id: "team_beta", name: "Beta Pooters", color: "bg-emerald-600" }
+    ];
+
+    const DEFAULT_PLAYERS = [
+      { id: "p1", displayName: "Alice", secretCode: "1111", teamId: "team_alpha" },
+      { id: "p2", displayName: "Bob", secretCode: "2222", teamId: "team_alpha" },
+      { id: "p3", displayName: "Charlie", secretCode: "3333", teamId: "team_beta" },
+      { id: "p4", displayName: "Diana", secretCode: "4444", teamId: "team_beta" }
+    ];
+
+    const DEFAULT_TASKS = [
+      {
+        id: "t1",
+        title: "The Grand Brew",
+        points: 50,
+        description: "Find the weirdest specialty drink on a local menu and capture a team toast.",
+        isTeamTask: true,
+        p1Id: "",
+        p2Id: ""
+      },
+      {
+        id: "t2",
+        title: "Living Statue",
+        points: 40,
+        description: "Pose with a public statue or landmark in your best magical or heroic stance.",
+        isTeamTask: true,
+        p1Id: "",
+        p2Id: ""
+      },
+      {
+        id: "h1",
+        title: "Sprint Speed Duel",
+        points: 30,
+        description: "1v1 Face-off: First to record a 20-meter dash video wins the duel points!",
+        isTeamTask: false,
+        p1Id: "p1",
+        p2Id: "p3"
+      }
+    ];
+
+    const DEFAULT_PROGRESS = [
+      {
+        id: "prog_1",
+        teamId: "team_alpha",
+        taskId: "t1",
+        userId: "p1",
+        userName: "Alice",
+        points: 50,
+        note: "Found some sparkly boba tea!",
+        mediaUrl: "https://images.unsplash.com/photo-1558857563-b371033873b8?auto=format&fit=crop&w=800&q=80",
+        mediaType: "image",
+        timestamp: Date.now() - 3600000
+      }
+    ];
+
+    const SQUAD_COLORS = [
+      { label: "Amber", value: "bg-amber-600" },
+      { label: "Emerald", value: "bg-emerald-600" },
+      { label: "Purple", value: "bg-purple-600" },
+      { label: "Rose", value: "bg-rose-600" },
+      { label: "Sky", value: "bg-sky-600" }
+    ];
+
+    // =========================================================================
+    // 3. INLINE SVG ICONS (Zero external icon library dependency)
+    // =========================================================================
+    const Icon = ({ name, size = 20, className = "" }) => {
+      const props = {
+        width: size,
+        height: size,
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: "2.2",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        className
+      };
+
+      switch (name) {
+        case "sparkles":
+          return (
+            <svg {...props}>
+              <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+              <path d="M20 3v4" /><path d="M22 5h-4" /><path d="M4 17v2" /><path d="M5 18H3" />
+            </svg>
+          );
+        case "users":
+          return (
+            <svg {...props}>
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          );
+        case "trophy":
+          return (
+            <svg {...props}>
+              <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+              <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+              <path d="M4 22h16" />
+              <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
+              <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
+              <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+            </svg>
+          );
+        case "compass":
+          return (
+            <svg {...props}>
+              <circle cx="12" cy="12" r="10" />
+              <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+            </svg>
+          );
+        case "camera":
+          return (
+            <svg {...props}>
+              <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+              <circle cx="12" cy="13" r="3" />
+            </svg>
+          );
+        case "zap":
+          return (
+            <svg {...props}>
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+          );
+        case "shield":
+          return (
+            <svg {...props}>
+              <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+            </svg>
+          );
+        case "swords":
+          return (
+            <svg {...props}>
+              <polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5" />
+              <line x1="13" y1="19" x2="19" y2="13" />
+              <line x1="16" y1="16" x2="20" y2="20" />
+              <line x1="19" y1="21" x2="21" y2="19" />
+              <polyline points="14.5 6.5 18 3 21 3 21 6 17.5 9.5" />
+              <line x1="5" y1="14" x2="9" y2="18" />
+              <line x1="7" y1="17" x2="4" y2="20" />
+              <line x1="3" y1="19" x2="5" y2="21" />
+            </svg>
+          );
+        case "checkCircle":
+          return (
+            <svg {...props}>
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          );
+        case "x":
+          return (
+            <svg {...props}>
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          );
+        case "trash":
+          return (
+            <svg {...props}>
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+          );
+        case "userPlus":
+          return (
+            <svg {...props}>
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <line x1="19" y1="8" x2="19" y2="14" />
+              <line x1="22" y1="11" x2="16" y2="11" />
+            </svg>
+          );
+        case "key":
+          return (
+            <svg {...props}>
+              <circle cx="7.5" cy="15.5" r="5.5" />
+              <path d="m21 2-9.6 9.6" />
+              <path d="m15.5 7.5 3 3L22 7l-3-3" />
+            </svg>
+          );
+        case "copy":
+          return (
+            <svg {...props}>
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          );
+        case "check":
+          return (
+            <svg {...props}>
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          );
+        case "refresh":
+          return (
+            <svg {...props}>
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+          );
+        case "upload":
+          return (
+            <svg {...props}>
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+          );
+        case "image":
+          return (
+            <svg {...props}>
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+          );
+        case "video":
+          return (
+            <svg {...props}>
+              <polygon points="23 7 16 12 23 17 23 7" />
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+            </svg>
+          );
+        case "play":
+          return (
+            <svg {...props} fill="currentColor">
+              <polygon points="6 4 20 12 6 20 6 4" />
+            </svg>
+          );
+        case "eye":
+          return (
+            <svg {...props}>
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          );
+        case "logOut":
+          return (
+            <svg {...props}>
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          );
+        case "cloud":
+          return (
+            <svg {...props}>
+              <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+            </svg>
+          );
+        case "alert":
+          return (
+            <svg {...props}>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          );
+        case "share":
+          return (
+            <svg {...props}>
+              <circle cx="18" cy="5" r="3" />
+              <circle cx="6" cy="12" r="3" />
+              <circle cx="18" cy="19" r="3" />
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+            </svg>
+          );
+        default:
+          return null;
+      }
+    };
+
+    // =========================================================================
+    // 4. MEDIA & CONFIG HELPERS
+    // =========================================================================
+    // Resize & compress photo via HTML5 Canvas (returns { dataUrl, blob })
+    const compressImageFile = (file, maxDimension = 1000, quality = 0.78) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Failed to read image file."));
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onerror = () => reject(new Error("Invalid image format."));
+          img.onload = () => {
+            let { width, height } = img;
+            if (width > maxDimension || height > maxDimension) {
+              if (width > height) {
+                height = Math.round((height * maxDimension) / width);
+                width = maxDimension;
+              } else {
+                width = Math.round((width * maxDimension) / height);
+                height = maxDimension;
+              }
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+            const dataUrl = canvas.toDataURL("image/jpeg", quality);
+            canvas.toBlob(
+              (blob) => resolve({ dataUrl, blob }),
+              "image/jpeg",
+              quality
+            );
+          };
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    };
+
+    // Parse Firebase config pasted either as pure JSON or JS object snippet
+    const parseFirebaseConfigInput = (rawText) => {
+      const trimmed = rawText.trim();
+      if (!trimmed) throw new Error("Paste your Firebase config object first.");
+
+      // 1. Try direct JSON parse
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && parsed.apiKey && parsed.projectId) return parsed;
+      } catch (_) {}
+
+      // 2. Extract object braces { ... } and convert unquoted keys / single quotes
+      const match = trimmed.match(/\{[\s\S]*\}/);
+      if (!match) {
+        throw new Error("Could not find a { ... } configuration block.");
+      }
+
+      let objLiteral = match[0]
+        // Replace single-quoted strings with double-quoted strings
+        .replace(/'([^'\\]*(\\.[^'\\]*)*)'/g, '"$1"')
+        // Quote unquoted object keys like apiKey: -> "apiKey":
+        .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
+        // Remove trailing commas before }
+        .replace(/,\s*}/g, "}");
+
+      const parsed = JSON.parse(objLiteral);
+      if (!parsed || !parsed.apiKey || !parsed.projectId) {
+        throw new Error("Config must include at least apiKey and projectId.");
+      }
+      return parsed;
+    };
+
+    const getInitialFirebaseConfig = () => {
+      // 1. Check URL query parameter ?fb=... (allows organizer to share 1-tap connect link!)
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const fbParam = params.get("fb");
+        if (fbParam) {
+          const decoded = JSON.parse(atob(decodeURIComponent(fbParam)));
+          if (decoded && decoded.apiKey && decoded.projectId) {
+            localStorage.setItem(LS_KEYS.FB_CONFIG, JSON.stringify(decoded));
+            return decoded;
           }
         }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-        const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
-        resolve(compressedDataUrl);
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
-  });
-};
+      } catch (_) {}
 
-// Custom Modal Component
-const Modal = ({ isOpen, onClose, title, children, primaryAction, primaryLabel, secondaryLabel }) => {
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden text-slate-900 border-4 border-amber-900 max-h-[92vh] flex flex-col">
-        <div className="p-5 border-b border-slate-100 flex justify-between items-start shrink-0">
-          <h3 className="text-xl font-black text-amber-900 uppercase tracking-tight leading-tight">{title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-900 bg-slate-100 rounded-full p-1">
-            <X size={22} />
-          </button>
-        </div>
-        <div className="p-5 overflow-y-auto text-base font-medium text-slate-700">
-          {children}
-        </div>
-        {(secondaryLabel || primaryAction) && (
-          <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-3 justify-end shrink-0">
-            {secondaryLabel && (
-              <button onClick={onClose} className="px-4 py-3 font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-xl w-full transition-colors">
-                {secondaryLabel}
+      // 2. Check hardcoded config in index.html
+      if (HARDCODED_FIREBASE_CONFIG.apiKey && HARDCODED_FIREBASE_CONFIG.projectId) {
+        return HARDCODED_FIREBASE_CONFIG;
+      }
+
+      // 3. Check localStorage saved config
+      try {
+        const saved = localStorage.getItem(LS_KEYS.FB_CONFIG);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.apiKey && parsed.projectId) return parsed;
+        }
+      } catch (_) {}
+
+      return null;
+    };
+
+    // =========================================================================
+    // 5. REUSABLE MODAL COMPONENT
+    // =========================================================================
+    const Modal = ({
+      isOpen,
+      onClose,
+      title,
+      children,
+      primaryAction,
+      primaryLabel,
+      primaryDisabled = false,
+      secondaryLabel
+    }) => {
+      if (!isOpen) return null;
+      return (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden text-slate-900 border-4 border-amber-900 max-h-[92vh] flex flex-col">
+            <div className="p-5 border-b border-slate-100 flex justify-between items-start shrink-0">
+              <h3 className="text-xl font-black text-amber-900 uppercase tracking-tight leading-tight">
+                {title}
+              </h3>
+              <button
+                onClick={onClose}
+                className="text-slate-400 hover:text-slate-900 bg-slate-100 rounded-full p-1.5"
+              >
+                <Icon name="x" size={20} />
               </button>
-            )}
-            {primaryAction && (
-              <button onClick={primaryAction} className="px-4 py-3 font-bold text-white bg-amber-600 hover:bg-amber-700 active:bg-amber-800 rounded-xl w-full shadow-lg shadow-amber-600/30 transition-colors">
-                {primaryLabel || 'Confirm'}
-              </button>
+            </div>
+            <div className="p-5 overflow-y-auto text-base font-medium text-slate-700">
+              {children}
+            </div>
+            {(secondaryLabel || primaryAction) && (
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-3 justify-end shrink-0">
+                {secondaryLabel && (
+                  <button
+                    onClick={onClose}
+                    className="px-4 py-3 font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-xl w-full transition-colors"
+                  >
+                    {secondaryLabel}
+                  </button>
+                )}
+                {primaryAction && (
+                  <button
+                    onClick={primaryAction}
+                    disabled={primaryDisabled}
+                    className="px-4 py-3 font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-xl w-full shadow-lg shadow-amber-600/30 transition-colors"
+                  >
+                    {primaryLabel || "Confirm"}
+                  </button>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-export default function App() {
-  // Persistent State via LocalStorage / Memory Fallback
-  const [teams, setTeams] = useState(() => {
-    try {
-      const saved = localStorage.getItem('pooters_teams_v4');
-      return saved ? JSON.parse(saved) : DEFAULT_TEAMS;
-    } catch {
-      return DEFAULT_TEAMS;
-    }
-  });
-
-  const [registeredPlayers, setRegisteredPlayers] = useState(() => {
-    try {
-      const saved = localStorage.getItem('pooters_players_v4');
-      return saved ? JSON.parse(saved) : DEFAULT_PLAYERS;
-    } catch {
-      return DEFAULT_PLAYERS;
-    }
-  });
-
-  const [tasks, setTasks] = useState(() => {
-    try {
-      const saved = localStorage.getItem('pooters_tasks_v4');
-      return saved ? JSON.parse(saved) : DEFAULT_TASKS;
-    } catch {
-      return DEFAULT_TASKS;
-    }
-  });
-
-  const [progress, setProgress] = useState(() => {
-    try {
-      const saved = localStorage.getItem('pooters_progress_v4');
-      return saved ? JSON.parse(saved) : DEFAULT_PROGRESS;
-    } catch {
-      return DEFAULT_PROGRESS;
-    }
-  });
-
-  // Navigation & Session States
-  const [portalMode, setPortalMode] = useState('player'); // 'player' | 'organizer'
-  const [isOrganizerAuthed, setIsOrganizerAuthed] = useState(false);
-  const [organizerPasswordInput, setOrganizerPasswordInput] = useState('');
-  
-  const [playerLoginName, setPlayerLoginName] = useState('');
-  const [playerLoginCode, setPlayerLoginCode] = useState('');
-  const [currentLoggedInPlayerId, setCurrentLoggedInPlayerId] = useState(null);
-
-  const [activeTab, setActiveTab] = useState('tasks'); // 'tasks' | 'gallery' | 'feed' | 'leaderboard' | 'profile'
-
-  // Modals & Media Upload States
-  const [taskModal, setTaskModal] = useState({ isOpen: false, task: null });
-  const [submissionText, setSubmissionText] = useState('');
-  const [mediaFileUrl, setMediaFileUrl] = useState('');
-  const [mediaFileType, setMediaFileType] = useState('image'); // 'image' | 'video'
-  const [mediaFileMeta, setMediaFileMeta] = useState(null); // { name, sizeText, isSessionBlob }
-  const [isProcessingMedia, setIsProcessingMedia] = useState(false);
-  const [mediaInputMode, setMediaInputMode] = useState('file'); // 'file' | 'url'
-  const [mediaUrlInput, setMediaUrlInput] = useState('');
-
-  const [errorModal, setErrorModal] = useState({ isOpen: false, message: '' });
-  const [mediaViewerModal, setMediaViewerModal] = useState({ isOpen: false, item: null });
-  const [copiedPlayerId, setCopiedPlayerId] = useState(null);
-
-  // Organizer Form States
-  const [newTeamName, setNewTeamName] = useState('');
-  const [newTeamColor, setNewTeamColor] = useState('bg-amber-600');
-  const [newPlayerName, setNewPlayerName] = useState('');
-  const [newPlayerCode, setNewPlayerCode] = useState('');
-  const [newPlayerTeamId, setNewPlayerTeamId] = useState('');
-
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskDesc, setNewTaskDesc] = useState('');
-  const [newTaskPoints, setNewTaskPoints] = useState(30);
-  const [newTaskIsTeam, setNewTaskIsTeam] = useState(true);
-  const [newTaskP1, setNewTaskP1] = useState('');
-  const [newTaskP2, setNewTaskP2] = useState('');
-
-  // Sync state to LocalStorage safely
-  useEffect(() => { 
-    try { localStorage.setItem('pooters_teams_v4', JSON.stringify(teams)); } catch {} 
-  }, [teams]);
-  
-  useEffect(() => { 
-    try { localStorage.setItem('pooters_players_v4', JSON.stringify(registeredPlayers)); } catch {} 
-  }, [registeredPlayers]);
-  
-  useEffect(() => { 
-    try { localStorage.setItem('pooters_tasks_v4', JSON.stringify(tasks)); } catch {} 
-  }, [tasks]);
-  
-  useEffect(() => { 
-    try {
-      // Strip ephemeral blob URLs when persisting to localStorage so reload doesn't show broken blobs
-      const serializable = progress.map(item => 
-        item.mediaUrl?.startsWith('blob:') 
-          ? { ...item, mediaUrl: '', isExpiredBlob: true } 
-          : item
+        </div>
       );
-      localStorage.setItem('pooters_progress_v4', JSON.stringify(serializable)); 
-    } catch {
-      // Quota protection fallback
-    } 
-  }, [progress]);
+    };
 
-  // Keep live logged-in player synchronized if organizer updates their squad
-  const currentLoggedInPlayer = useMemo(() => {
-    if (!currentLoggedInPlayerId) return null;
-    return registeredPlayers.find(p => p.id === currentLoggedInPlayerId) || null;
-  }, [currentLoggedInPlayerId, registeredPlayers]);
+    // =========================================================================
+    // 6. MAIN APPLICATION COMPONENT
+    // =========================================================================
+    function App() {
+      // Firebase Config & Connection State
+      const [firebaseConfig, setFirebaseConfig] = useState(getInitialFirebaseConfig);
+      const [fbStatus, setFbStatus] = useState("demo"); // 'demo' | 'connecting' | 'connected' | 'error'
+      const [fbErrorMsg, setFbErrorMsg] = useState("");
+      const dbRef = useRef(null);
+      const storageRef = useRef(null);
 
-  // Derived state
-  const currentTeam = useMemo(() => {
-    if (!currentLoggedInPlayer || !currentLoggedInPlayer.teamId) return null;
-    return teams.find(t => t.id === currentLoggedInPlayer.teamId) || null;
-  }, [currentLoggedInPlayer, teams]);
-
-  const teamMembers = useMemo(() => {
-    if (!currentTeam) return [];
-    return registeredPlayers.filter(p => p.teamId === currentTeam.id);
-  }, [currentTeam, registeredPlayers]);
-
-  const leaderBoard = useMemo(() => {
-    const scores = {};
-    teams.forEach(t => scores[t.id] = { ...t, score: 0 });
-
-    const uniqueTeamTasks = new Set();
-    const uniqueSoloTasks = new Set();
-
-    progress.forEach(p => {
-      const task = tasks.find(t => t.id === p.taskId);
-      if (!scores[p.teamId] || !task) return;
-
-      if (task.isTeamTask) {
-        const key = `${p.teamId}_${p.taskId}`;
-        if (!uniqueTeamTasks.has(key)) {
-          uniqueTeamTasks.add(key);
-          scores[p.teamId].score += task.points;
+      // Game State (Synced with Firestore when connected, or localStorage in Local Demo Mode)
+      const [teams, setTeams] = useState(() => {
+        try {
+          const saved = localStorage.getItem(LS_KEYS.TEAMS);
+          return saved ? JSON.parse(saved) : DEFAULT_TEAMS;
+        } catch {
+          return DEFAULT_TEAMS;
         }
-      } else {
-        const key = `${p.taskId}`;
-        if (!uniqueSoloTasks.has(key)) {
-          uniqueSoloTasks.add(key);
-          scores[p.teamId].score += task.points;
+      });
+
+      const [registeredPlayers, setRegisteredPlayers] = useState(() => {
+        try {
+          const saved = localStorage.getItem(LS_KEYS.PLAYERS);
+          return saved ? JSON.parse(saved) : DEFAULT_PLAYERS;
+        } catch {
+          return DEFAULT_PLAYERS;
         }
-      }
-    });
-
-    return Object.values(scores).sort((a, b) => b.score - a.score);
-  }, [teams, tasks, progress]);
-
-  // Bulletproof File Upload Handler (Canvas Image Compression + ObjectURL Video Playback)
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|webm|m4v|avi)$/i.test(file.name);
-    const isImage = file.type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(file.name);
-
-    if (!isImage && !isVideo) {
-      setErrorModal({ isOpen: true, message: "Please select a valid photo or video file." });
-      e.target.value = '';
-      return;
-    }
-
-    const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
-    setIsProcessingMedia(true);
-
-    try {
-      if (isImage) {
-        const compressedDataUrl = await compressImageFile(file, 800, 0.75);
-        setMediaFileUrl(compressedDataUrl);
-        setMediaFileType('image');
-        setMediaFileMeta({
-          name: file.name,
-          sizeText: `${sizeInMB} MB (Optimized)`,
-          isSessionBlob: false
-        });
-      } else {
-        // Use instant Object URL for smooth in-session HTML5 video playback without localStorage quota crashes
-        const objectUrl = URL.createObjectURL(file);
-        setMediaFileUrl(objectUrl);
-        setMediaFileType('video');
-        setMediaFileMeta({
-          name: file.name,
-          sizeText: `${sizeInMB} MB`,
-          isSessionBlob: true
-        });
-      }
-    } catch (err) {
-      setErrorModal({
-        isOpen: true,
-        message: "Could not process that file. Try another photo/video or use the Sample Media buttons."
       });
-    } finally {
-      setIsProcessingMedia(false);
-      e.target.value = '';
-    }
-  };
 
-  const handleUrlSubmit = () => {
-    if (!mediaUrlInput.trim()) {
-      setErrorModal({ isOpen: true, message: "Please paste a valid image or video URL." });
-      return;
-    }
-    const cleanUrl = mediaUrlInput.trim();
-    const isVid = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(cleanUrl) || cleanUrl.includes('video');
-    setMediaFileUrl(cleanUrl);
-    setMediaFileType(isVid ? 'video' : 'image');
-    setMediaFileMeta({
-      name: 'External Media URL',
-      sizeText: isVid ? 'Video Link' : 'Image Link',
-      isSessionBlob: false
-    });
-    setMediaUrlInput('');
-  };
-
-  // One-tap Sample Media Selector
-  const selectSampleMedia = (type) => {
-    if (type === 'image') {
-      setMediaFileUrl('https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=800&q=80');
-      setMediaFileType('image');
-      setMediaFileMeta({ name: 'Sample_Squad_Photo.jpg', sizeText: 'Sample Photo', isSessionBlob: false });
-    } else {
-      setMediaFileUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4');
-      setMediaFileType('video');
-      setMediaFileMeta({ name: 'Sample_Challenge_Clip.mp4', sizeText: 'Sample Video', isSessionBlob: false });
-    }
-  };
-
-  const clearSelectedMedia = () => {
-    setMediaFileUrl('');
-    setMediaFileType('image');
-    setMediaFileMeta(null);
-  };
-
-  // Player Login Action
-  const handlePlayerLogin = (e) => {
-    e.preventDefault();
-    const cleanName = playerLoginName.trim().toLowerCase();
-    const cleanCode = playerLoginCode.trim();
-
-    const foundPlayer = registeredPlayers.find(
-      p => p.displayName.trim().toLowerCase() === cleanName && p.secretCode.trim() === cleanCode
-    );
-
-    if (foundPlayer) {
-      setCurrentLoggedInPlayerId(foundPlayer.id);
-    } else {
-      setErrorModal({ isOpen: true, message: "Invalid player name or secret code. Check with your organizer!" });
-    }
-  };
-
-  const quickFillDemoPlayer = (player) => {
-    setPlayerLoginName(player.displayName);
-    setPlayerLoginCode(player.secretCode);
-  };
-
-  // Organizer Auth Action
-  const handleOrganizerAuth = (e) => {
-    e.preventDefault();
-    if (organizerPasswordInput === 'pooters2026') {
-      setIsOrganizerAuthed(true);
-      setPortalMode('organizer');
-    } else {
-      setErrorModal({ isOpen: true, message: "Incorrect organizer password." });
-    }
-  };
-
-  // Organizer Actions: Squad & Player Management
-  const handleAdminAddTeam = (e) => {
-    e.preventDefault();
-    if (!newTeamName.trim()) return;
-    const newTeam = { id: 'team_' + Date.now(), name: newTeamName.trim(), color: newTeamColor };
-    setTeams([...teams, newTeam]);
-    setNewTeamName('');
-  };
-
-  const handleDeleteTeam = (teamId) => {
-    // Delete squad and automatically set its players to Unassigned ('')
-    setTeams(teams.filter(t => t.id !== teamId));
-    setRegisteredPlayers(registeredPlayers.map(p => p.teamId === teamId ? { ...p, teamId: '' } : p));
-  };
-
-  const handleAssignPlayerToTeam = (playerId, targetTeamId) => {
-    if (!playerId) return;
-    setRegisteredPlayers(prev =>
-      prev.map(p => (p.id === playerId ? { ...p, teamId: targetTeamId } : p))
-    );
-  };
-
-  const generateRandomCode = () => {
-    const code = Math.floor(1000 + Math.random() * 9000).toString();
-    setNewPlayerCode(code);
-  };
-
-  const handleAdminAddPlayer = (e) => {
-    e.preventDefault();
-    if (!newPlayerName.trim()) return;
-    const finalCode = newPlayerCode.trim() || Math.floor(1000 + Math.random() * 9000).toString();
-    const newPlayer = {
-      id: 'player_' + Date.now(),
-      displayName: newPlayerName.trim(),
-      secretCode: finalCode,
-      teamId: newPlayerTeamId || ''
-    };
-    setRegisteredPlayers([...registeredPlayers, newPlayer]);
-    setNewPlayerName('');
-    setNewPlayerCode('');
-  };
-
-  const handleDeletePlayer = (playerId) => {
-    setRegisteredPlayers(registeredPlayers.filter(p => p.id !== playerId));
-  };
-
-  const handleCopyCode = (player) => {
-    const text = `${player.displayName} - Code: ${player.secretCode}`;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).catch(() => {});
-    }
-    setCopiedPlayerId(player.id);
-    setTimeout(() => setCopiedPlayerId(null), 1800);
-  };
-
-  const handleAdminAddTask = (e) => {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-    const newTask = {
-      id: 'task_' + Date.now(),
-      title: newTaskTitle.trim(),
-      description: newTaskDesc.trim(),
-      points: Number(newTaskPoints),
-      isTeamTask: newTaskIsTeam,
-      p1Id: newTaskIsTeam ? '' : newTaskP1,
-      p2Id: newTaskIsTeam ? '' : newTaskP2
-    };
-    setTasks([...tasks, newTask]);
-    setNewTaskTitle('');
-    setNewTaskDesc('');
-    setNewTaskP1('');
-    setNewTaskP2('');
-  };
-
-  const handleDeleteTask = (taskId) => {
-    setTasks(tasks.filter(t => t.id !== taskId));
-  };
-
-  const openTaskSubmissionModal = (task) => {
-    if (!currentTeam) {
-      setErrorModal({
-        isOpen: true,
-        message: "You are currently Unassigned! Ask the Organizer to assign you to a Squad before submitting tasks."
+      const [tasks, setTasks] = useState(() => {
+        try {
+          const saved = localStorage.getItem(LS_KEYS.TASKS);
+          return saved ? JSON.parse(saved) : DEFAULT_TASKS;
+        } catch {
+          return DEFAULT_TASKS;
+        }
       });
-      return;
-    }
-    clearSelectedMedia();
-    setSubmissionText('');
-    setTaskModal({ isOpen: true, task });
-  };
 
-  const handleCompleteTask = () => {
-    if (!currentTeam || !taskModal.task || !currentLoggedInPlayer) return;
+      const [progress, setProgress] = useState(() => {
+        try {
+          const saved = localStorage.getItem(LS_KEYS.PROGRESS);
+          return saved ? JSON.parse(saved) : DEFAULT_PROGRESS;
+        } catch {
+          return DEFAULT_PROGRESS;
+        }
+      });
 
-    const { task } = taskModal;
-    const newEntry = {
-      id: 'prog_' + Date.now(),
-      teamId: currentTeam.id,
-      taskId: task.id,
-      userId: currentLoggedInPlayer.id,
-      userName: currentLoggedInPlayer.displayName,
-      points: task.points,
-      note: submissionText.trim() || 'Completed challenge!',
-      mediaUrl: mediaFileUrl || 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=800&q=80',
-      mediaType: mediaFileUrl ? mediaFileType : 'image',
-      timestamp: Date.now()
-    };
+      // Navigation & Auth State
+      const [portalMode, setPortalMode] = useState("player"); // 'player' | 'organizer'
+      const [isOrganizerAuthed, setIsOrganizerAuthed] = useState(false);
+      const [organizerPasswordInput, setOrganizerPasswordInput] = useState("");
 
-    setProgress([newEntry, ...progress]);
-    setTaskModal({ isOpen: false, task: null });
-    setSubmissionText('');
-    clearSelectedMedia();
-  };
+      const [playerLoginName, setPlayerLoginName] = useState("");
+      const [playerLoginCode, setPlayerLoginCode] = useState("");
+      const [currentLoggedInPlayerId, setCurrentLoggedInPlayerId] = useState(() => {
+        try {
+          return localStorage.getItem(LS_KEYS.SESSION_PLAYER) || null;
+        } catch {
+          return null;
+        }
+      });
 
-  // --- ORGANIZER PORTAL VIEW ---
-  if (portalMode === 'organizer') {
-    if (!isOrganizerAuthed) {
-      return (
-        <div className="min-h-screen bg-slate-900 text-white p-6 flex flex-col items-center justify-center">
-          <Shield size={64} className="mb-6 text-amber-400" />
-          <h1 className="text-3xl font-black mb-2 text-center uppercase">Organizer Portal</h1>
-          <p className="text-slate-400 mb-8 text-center text-sm font-medium">Enter password to manage Pooters Scavenger Hunt</p>
-          
-          <form onSubmit={handleOrganizerAuth} className="w-full max-w-sm flex flex-col gap-4">
-            <input 
-              type="password" 
-              placeholder="Organizer Password (pooters2026)"
-              value={organizerPasswordInput}
-              onChange={(e) => setOrganizerPasswordInput(e.target.value)}
-              className="w-full px-5 py-4 rounded-xl text-slate-900 font-bold focus:outline-none focus:ring-4 focus:ring-amber-500"
-              required
-            />
-            <button type="submit" className="w-full bg-amber-500 hover:bg-amber-400 text-amber-950 font-black text-lg py-4 rounded-xl uppercase shadow-lg">
-              Unlock Organizer Dashboard
-            </button>
-            <button 
-              type="button" 
-              onClick={() => setPortalMode('player')}
-              className="text-slate-400 hover:text-white font-bold text-sm mt-4 text-center"
+      const [activeTab, setActiveTab] = useState("tasks"); // 'tasks' | 'gallery' | 'feed' | 'leaderboard' | 'profile'
+
+      // Task Submission & Media Upload States
+      const [taskModal, setTaskModal] = useState({ isOpen: false, task: null });
+      const [submissionText, setSubmissionText] = useState("");
+      const [mediaFileUrl, setMediaFileUrl] = useState("");
+      const [mediaFileType, setMediaFileType] = useState("image"); // 'image' | 'video'
+      const [mediaFileMeta, setMediaFileMeta] = useState(null);
+      const [pendingUploadBlob, setPendingUploadBlob] = useState(null); // File or Blob for Firebase Storage
+      const [isProcessingMedia, setIsProcessingMedia] = useState(false);
+      const [isSubmittingTask, setIsSubmittingTask] = useState(false);
+      const [uploadProgressPct, setUploadProgressPct] = useState(0);
+      const [mediaInputMode, setMediaInputMode] = useState("file"); // 'file' | 'url'
+      const [mediaUrlInput, setMediaUrlInput] = useState("");
+
+      // Firebase Setup Modal & Share Link States
+      const [fbModalOpen, setFbModalOpen] = useState(false);
+      const [fbConfigText, setFbConfigText] = useState(() =>
+        firebaseConfig ? JSON.stringify(firebaseConfig, null, 2) : ""
+      );
+      const [copiedShareLink, setCopiedShareLink] = useState(false);
+
+      // General Modals & Feedback
+      const [errorModal, setErrorModal] = useState({ isOpen: false, title: "Notice", message: "" });
+      const [mediaViewerModal, setMediaViewerModal] = useState({ isOpen: false, item: null });
+      const [copiedPlayerId, setCopiedPlayerId] = useState(null);
+
+      // Organizer Forms
+      const [newTeamName, setNewTeamName] = useState("");
+      const [newTeamColor, setNewTeamColor] = useState("bg-amber-600");
+      const [newPlayerName, setNewPlayerName] = useState("");
+      const [newPlayerCode, setNewPlayerCode] = useState("");
+      const [newPlayerTeamId, setNewPlayerTeamId] = useState("");
+
+      const [newTaskTitle, setNewTaskTitle] = useState("");
+      const [newTaskDesc, setNewTaskDesc] = useState("");
+      const [newTaskPoints, setNewTaskPoints] = useState(30);
+      const [newTaskIsTeam, setNewTaskIsTeam] = useState(true);
+      const [newTaskP1, setNewTaskP1] = useState("");
+      const [newTaskP2, setNewTaskP2] = useState("");
+
+      // Persist active player session ID
+      useEffect(() => {
+        try {
+          if (currentLoggedInPlayerId) {
+            localStorage.setItem(LS_KEYS.SESSION_PLAYER, currentLoggedInPlayerId);
+          } else {
+            localStorage.removeItem(LS_KEYS.SESSION_PLAYER);
+          }
+        } catch (_) {}
+      }, [currentLoggedInPlayerId]);
+
+      // =========================================================================
+      // 7. FIREBASE REAL-TIME SYNC ENGINE (WITH AUTOMATIC LOCAL DEMO FALLBACK)
+      // =========================================================================
+      useEffect(() => {
+        if (!firebaseConfig || !firebaseConfig.apiKey || !firebaseConfig.projectId) {
+          setFbStatus("demo");
+          setFbErrorMsg("");
+          dbRef.current = null;
+          storageRef.current = null;
+          return;
+        }
+
+        if (typeof window.firebase === "undefined") {
+          setFbStatus("error");
+          setFbErrorMsg("Firebase SDK failed to load. Check internet connection.");
+          return;
+        }
+
+        setFbStatus("connecting");
+        setFbErrorMsg("");
+
+        let appInstance;
+        try {
+          if (window.firebase.apps && window.firebase.apps.length > 0) {
+            // Re-use or re-initialize named app if config changed
+            const appName = "pooters_" + firebaseConfig.projectId;
+            const existing = window.firebase.apps.find((a) => a.name === appName);
+            appInstance = existing || window.firebase.initializeApp(firebaseConfig, appName);
+          } else {
+            appInstance = window.firebase.initializeApp(firebaseConfig);
+          }
+
+          const db = appInstance.firestore();
+          const storage = appInstance.storage();
+          dbRef.current = db;
+          storageRef.current = storage;
+
+          const baseDoc = db.collection("pooters_hunt").doc("main_game");
+
+          // Subscribe to Teams
+          const unsubTeams = baseDoc.collection("teams").onSnapshot(
+            (snap) => {
+              setFbStatus("connected");
+              const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+              setTeams(list);
+            },
+            (err) => {
+              setFbStatus("error");
+              setFbErrorMsg(err.message || "Firestore permission denied. Set Firestore rules to test mode.");
+            }
+          );
+
+          // Subscribe to Players
+          const unsubPlayers = baseDoc.collection("players").onSnapshot((snap) => {
+            const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            setRegisteredPlayers(list);
+          });
+
+          // Subscribe to Tasks
+          const unsubTasks = baseDoc.collection("tasks").onSnapshot((snap) => {
+            const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            setTasks(list);
+          });
+
+          // Subscribe to Progress / Submissions
+          const unsubProgress = baseDoc.collection("progress").onSnapshot((snap) => {
+            const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            setProgress(list);
+          });
+
+          return () => {
+            unsubTeams();
+            unsubPlayers();
+            unsubTasks();
+            unsubProgress();
+          };
+        } catch (err) {
+          setFbStatus("error");
+          setFbErrorMsg(err.message || "Invalid Firebase configuration.");
+        }
+      }, [firebaseConfig]);
+
+      // Persist Local Demo Mode changes to localStorage
+      useEffect(() => {
+        if (fbStatus !== "demo") return;
+        try {
+          localStorage.setItem(LS_KEYS.TEAMS, JSON.stringify(teams));
+        } catch (_) {}
+      }, [teams, fbStatus]);
+
+      useEffect(() => {
+        if (fbStatus !== "demo") return;
+        try {
+          localStorage.setItem(LS_KEYS.PLAYERS, JSON.stringify(registeredPlayers));
+        } catch (_) {}
+      }, [registeredPlayers, fbStatus]);
+
+      useEffect(() => {
+        if (fbStatus !== "demo") return;
+        try {
+          localStorage.setItem(LS_KEYS.TASKS, JSON.stringify(tasks));
+        } catch (_) {}
+      }, [tasks, fbStatus]);
+
+      useEffect(() => {
+        if (fbStatus !== "demo") return;
+        try {
+          const serializable = progress.map((item) =>
+            item.mediaUrl?.startsWith("blob:")
+              ? { ...item, mediaUrl: "", isExpiredBlob: true }
+              : item
+          );
+          localStorage.setItem(LS_KEYS.PROGRESS, JSON.stringify(serializable));
+        } catch (_) {}
+      }, [progress, fbStatus]);
+
+      // Seed starter squads/players/tasks into an empty Firebase Firestore database
+      const handleSeedCloudData = async () => {
+        if (!dbRef.current) return;
+        try {
+          const baseDoc = dbRef.current.collection("pooters_hunt").doc("main_game");
+          const batch = dbRef.current.batch();
+
+          DEFAULT_TEAMS.forEach((t) => {
+            batch.set(baseDoc.collection("teams").doc(t.id), t);
+          });
+          DEFAULT_PLAYERS.forEach((p) => {
+            batch.set(baseDoc.collection("players").doc(p.id), p);
+          });
+          DEFAULT_TASKS.forEach((task) => {
+            batch.set(baseDoc.collection("tasks").doc(task.id), task);
+          });
+
+          await batch.commit();
+          setErrorModal({
+            isOpen: true,
+            title: "Cloud Seeded!",
+            message: "Starter squads, players, and sample tasks have been pushed to Firebase Firestore!"
+          });
+        } catch (err) {
+          setErrorModal({
+            isOpen: true,
+            title: "Seed Error",
+            message: err.message || "Failed to write starter data to Firestore."
+          });
+        }
+      };
+
+      // Save Firebase Config from Organizer Modal
+      const handleSaveFirebaseConfig = () => {
+        try {
+          const parsed = parseFirebaseConfigInput(fbConfigText);
+          localStorage.setItem(LS_KEYS.FB_CONFIG, JSON.stringify(parsed));
+          setFirebaseConfig(parsed);
+          setFbModalOpen(false);
+        } catch (err) {
+          setErrorModal({
+            isOpen: true,
+            title: "Invalid Config",
+            message: err.message
+          });
+        }
+      };
+
+      const handleDisconnectFirebase = () => {
+        localStorage.removeItem(LS_KEYS.FB_CONFIG);
+        setFirebaseConfig(null);
+        setFbConfigText("");
+        setFbModalOpen(false);
+      };
+
+      // Generate a 1-tap Shareable URL containing encoded Firebase config so friends auto-connect
+      const handleCopyConnectLink = () => {
+        if (!firebaseConfig) return;
+        try {
+          const encoded = encodeURIComponent(btoa(JSON.stringify(firebaseConfig)));
+          const baseUrl = window.location.origin + window.location.pathname;
+          const fullUrl = `${baseUrl}?fb=${encoded}`;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(fullUrl).catch(() => {});
+          }
+          setCopiedShareLink(true);
+          setTimeout(() => setCopiedShareLink(false), 2500);
+        } catch (_) {}
+      };
+
+      // =========================================================================
+      // 8. DERIVED STATE (LIVE PLAYER, TEAM, LEADERBOARD)
+      // =========================================================================
+      const currentLoggedInPlayer = useMemo(() => {
+        if (!currentLoggedInPlayerId) return null;
+        return registeredPlayers.find((p) => p.id === currentLoggedInPlayerId) || null;
+      }, [currentLoggedInPlayerId, registeredPlayers]);
+
+      const currentTeam = useMemo(() => {
+        if (!currentLoggedInPlayer || !currentLoggedInPlayer.teamId) return null;
+        return teams.find((t) => t.id === currentLoggedInPlayer.teamId) || null;
+      }, [currentLoggedInPlayer, teams]);
+
+      const teamMembers = useMemo(() => {
+        if (!currentTeam) return [];
+        return registeredPlayers.filter((p) => p.teamId === currentTeam.id);
+      }, [currentTeam, registeredPlayers]);
+
+      const leaderBoard = useMemo(() => {
+        const scores = {};
+        teams.forEach((t) => (scores[t.id] = { ...t, score: 0 }));
+
+        const uniqueTeamTasks = new Set();
+        const uniqueSoloTasks = new Set();
+
+        progress.forEach((p) => {
+          const task = tasks.find((t) => t.id === p.taskId);
+          if (!scores[p.teamId] || !task) return;
+
+          if (task.isTeamTask) {
+            const key = `${p.teamId}_${p.taskId}`;
+            if (!uniqueTeamTasks.has(key)) {
+              uniqueTeamTasks.add(key);
+              scores[p.teamId].score += Number(task.points) || 0;
+            }
+          } else {
+            const key = `${p.taskId}`;
+            if (!uniqueSoloTasks.has(key)) {
+              uniqueSoloTasks.add(key);
+              scores[p.teamId].score += Number(task.points) || 0;
+            }
+          }
+        });
+
+        return Object.values(scores).sort((a, b) => b.score - a.score);
+      }, [teams, tasks, progress]);
+
+      // =========================================================================
+      // 9. MEDIA SELECTION & UPLOAD HANDLERS (CANVAS + FIREBASE STORAGE)
+      // =========================================================================
+      const handleFileUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const isVideo =
+          file.type.startsWith("video/") || /\.(mp4|mov|webm|m4v|avi)$/i.test(file.name);
+        const isImage =
+          file.type.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(file.name);
+
+        if (!isImage && !isVideo) {
+          setErrorModal({
+            isOpen: true,
+            title: "Unsupported File",
+            message: "Please choose a photo or video file."
+          });
+          e.target.value = "";
+          return;
+        }
+
+        const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
+        setIsProcessingMedia(true);
+
+        try {
+          if (isImage) {
+            const { dataUrl, blob } = await compressImageFile(file, 1000, 0.78);
+            setMediaFileUrl(dataUrl);
+            setMediaFileType("image");
+            setPendingUploadBlob(blob);
+            setMediaFileMeta({
+              name: file.name,
+              sizeText: `${sizeInMB} MB (Optimized)`,
+              isLocalVideoBlob: false
+            });
+          } else {
+            const objectUrl = URL.createObjectURL(file);
+            setMediaFileUrl(objectUrl);
+            setMediaFileType("video");
+            setPendingUploadBlob(file);
+            setMediaFileMeta({
+              name: file.name,
+              sizeText: `${sizeInMB} MB`,
+              isLocalVideoBlob: true
+            });
+          }
+        } catch (err) {
+          setErrorModal({
+            isOpen: true,
+            title: "Media Error",
+            message: "Could not process that file. Try another photo/video or use the Sample buttons."
+          });
+        } finally {
+          setIsProcessingMedia(false);
+          e.target.value = "";
+        }
+      };
+
+      const handleUrlSubmit = () => {
+        if (!mediaUrlInput.trim()) {
+          setErrorModal({
+            isOpen: true,
+            title: "Missing URL",
+            message: "Please paste a valid image or video URL."
+          });
+          return;
+        }
+        const cleanUrl = mediaUrlInput.trim();
+        const isVid = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(cleanUrl) || cleanUrl.includes("video");
+        setMediaFileUrl(cleanUrl);
+        setMediaFileType(isVid ? "video" : "image");
+        setPendingUploadBlob(null);
+        setMediaFileMeta({
+          name: "External Media Link",
+          sizeText: isVid ? "Video URL" : "Image URL",
+          isLocalVideoBlob: false
+        });
+        setMediaUrlInput("");
+      };
+
+      const selectSampleMedia = (type) => {
+        setPendingUploadBlob(null);
+        if (type === "image") {
+          setMediaFileUrl(
+            "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=800&q=80"
+          );
+          setMediaFileType("image");
+          setMediaFileMeta({
+            name: "Sample_Squad_Photo.jpg",
+            sizeText: "Sample Photo",
+            isLocalVideoBlob: false
+          });
+        } else {
+          setMediaFileUrl(
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+          );
+          setMediaFileType("video");
+          setMediaFileMeta({
+            name: "Sample_Challenge_Clip.mp4",
+            sizeText: "Sample Video",
+            isLocalVideoBlob: false
+          });
+        }
+      };
+
+      const clearSelectedMedia = () => {
+        setMediaFileUrl("");
+        setMediaFileType("image");
+        setMediaFileMeta(null);
+        setPendingUploadBlob(null);
+        setUploadProgressPct(0);
+      };
+
+      // Upload Blob/File to Firebase Storage and return public download URL
+      const uploadBlobToFirebaseStorage = (blob, type) => {
+        return new Promise((resolve, reject) => {
+          if (!storageRef.current) {
+            reject(new Error("Firebase Storage not initialized."));
+            return;
+          }
+          const ext = type === "video" ? "mp4" : "jpg";
+          const filePath = `pooters_submissions/${Date.now()}_${Math.random()
+            .toString(36)
+            .slice(2, 8)}.${ext}`;
+          const fileRef = storageRef.current.ref().child(filePath);
+          const uploadTask = fileRef.put(blob);
+
+          uploadTask.on(
+            "state_changed",
+            (snapshot) => {
+              const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+              setUploadProgressPct(pct);
+            },
+            (error) => reject(error),
+            async () => {
+              try {
+                const downloadUrl = await uploadTask.snapshot.ref.getDownloadURL();
+                resolve(downloadUrl);
+              } catch (err) {
+                reject(err);
+              }
+            }
+          );
+        });
+      };
+
+      // =========================================================================
+      // 10. PLAYER & ORGANIZER CRUD ACTIONS (CLOUD OR LOCAL FALLBACK)
+      // =========================================================================
+      const handlePlayerLogin = (e) => {
+        e.preventDefault();
+        const cleanName = playerLoginName.trim().toLowerCase();
+        const cleanCode = playerLoginCode.trim();
+
+        const foundPlayer = registeredPlayers.find(
+          (p) =>
+            p.displayName.trim().toLowerCase() === cleanName &&
+            p.secretCode.trim() === cleanCode
+        );
+
+        if (foundPlayer) {
+          setCurrentLoggedInPlayerId(foundPlayer.id);
+        } else {
+          setErrorModal({
+            isOpen: true,
+            title: "Login Notice",
+            message: "Invalid player name or secret code. Check with your organizer!"
+          });
+        }
+      };
+
+      const quickFillDemoPlayer = (player) => {
+        setPlayerLoginName(player.displayName);
+        setPlayerLoginCode(player.secretCode);
+      };
+
+      const handleOrganizerAuth = (e) => {
+        e.preventDefault();
+        if (organizerPasswordInput === ORGANIZER_PASSWORD) {
+          setIsOrganizerAuthed(true);
+          setPortalMode("organizer");
+        } else {
+          setErrorModal({
+            isOpen: true,
+            title: "Access Denied",
+            message: "Incorrect organizer password."
+          });
+        }
+      };
+
+      // Squads CRUD
+      const handleAdminAddTeam = async (e) => {
+        e.preventDefault();
+        if (!newTeamName.trim()) return;
+        const id = "team_" + Date.now();
+        const newTeam = { id, name: newTeamName.trim(), color: newTeamColor };
+        setNewTeamName("");
+
+        if (fbStatus === "connected" && dbRef.current) {
+          await dbRef.current
+            .collection("pooters_hunt")
+            .doc("main_game")
+            .collection("teams")
+            .doc(id)
+            .set(newTeam);
+        } else {
+          setTeams((prev) => [...prev, newTeam]);
+        }
+      };
+
+      const handleDeleteTeam = async (teamId) => {
+        if (fbStatus === "connected" && dbRef.current) {
+          const baseDoc = dbRef.current.collection("pooters_hunt").doc("main_game");
+          const batch = dbRef.current.batch();
+          batch.delete(baseDoc.collection("teams").doc(teamId));
+          registeredPlayers
+            .filter((p) => p.teamId === teamId)
+            .forEach((p) => {
+              batch.update(baseDoc.collection("players").doc(p.id), { teamId: "" });
+            });
+          await batch.commit();
+        } else {
+          setTeams((prev) => prev.filter((t) => t.id !== teamId));
+          setRegisteredPlayers((prev) =>
+            prev.map((p) => (p.teamId === teamId ? { ...p, teamId: "" } : p))
+          );
+        }
+      };
+
+      const handleAssignPlayerToTeam = async (playerId, targetTeamId) => {
+        if (!playerId) return;
+        if (fbStatus === "connected" && dbRef.current) {
+          await dbRef.current
+            .collection("pooters_hunt")
+            .doc("main_game")
+            .collection("players")
+            .doc(playerId)
+            .update({ teamId: targetTeamId });
+        } else {
+          setRegisteredPlayers((prev) =>
+            prev.map((p) => (p.id === playerId ? { ...p, teamId: targetTeamId } : p))
+          );
+        }
+      };
+
+      // Players CRUD
+      const generateRandomCode = () => {
+        const code = Math.floor(1000 + Math.random() * 9000).toString();
+        setNewPlayerCode(code);
+      };
+
+      const handleAdminAddPlayer = async (e) => {
+        e.preventDefault();
+        if (!newPlayerName.trim()) return;
+        const id = "player_" + Date.now();
+        const finalCode =
+          newPlayerCode.trim() || Math.floor(1000 + Math.random() * 9000).toString();
+        const newPlayer = {
+          id,
+          displayName: newPlayerName.trim(),
+          secretCode: finalCode,
+          teamId: newPlayerTeamId || ""
+        };
+        setNewPlayerName("");
+        setNewPlayerCode("");
+
+        if (fbStatus === "connected" && dbRef.current) {
+          await dbRef.current
+            .collection("pooters_hunt")
+            .doc("main_game")
+            .collection("players")
+            .doc(id)
+            .set(newPlayer);
+        } else {
+          setRegisteredPlayers((prev) => [...prev, newPlayer]);
+        }
+      };
+
+      const handleDeletePlayer = async (playerId) => {
+        if (fbStatus === "connected" && dbRef.current) {
+          await dbRef.current
+            .collection("pooters_hunt")
+            .doc("main_game")
+            .collection("players")
+            .doc(playerId)
+            .delete();
+        } else {
+          setRegisteredPlayers((prev) => prev.filter((p) => p.id !== playerId));
+        }
+      };
+
+      const handleCopyCode = (player) => {
+        const text = `${player.displayName} - Code: ${player.secretCode}`;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).catch(() => {});
+        }
+        setCopiedPlayerId(player.id);
+        setTimeout(() => setCopiedPlayerId(null), 1800);
+      };
+
+      // Tasks CRUD
+      const handleAdminAddTask = async (e) => {
+        e.preventDefault();
+        if (!newTaskTitle.trim()) return;
+        const id = "task_" + Date.now();
+        const newTask = {
+          id,
+          title: newTaskTitle.trim(),
+          description: newTaskDesc.trim(),
+          points: Number(newTaskPoints),
+          isTeamTask: newTaskIsTeam,
+          p1Id: newTaskIsTeam ? "" : newTaskP1,
+          p2Id: newTaskIsTeam ? "" : newTaskP2
+        };
+        setNewTaskTitle("");
+        setNewTaskDesc("");
+        setNewTaskP1("");
+        setNewTaskP2("");
+
+        if (fbStatus === "connected" && dbRef.current) {
+          await dbRef.current
+            .collection("pooters_hunt")
+            .doc("main_game")
+            .collection("tasks")
+            .doc(id)
+            .set(newTask);
+        } else {
+          setTasks((prev) => [...prev, newTask]);
+        }
+      };
+
+      const handleDeleteTask = async (taskId) => {
+        if (fbStatus === "connected" && dbRef.current) {
+          await dbRef.current
+            .collection("pooters_hunt")
+            .doc("main_game")
+            .collection("tasks")
+            .doc(taskId)
+            .delete();
+        } else {
+          setTasks((prev) => prev.filter((t) => t.id !== taskId));
+        }
+      };
+
+      // Task Submission (Uploads photo/video to Firebase Storage if connected, else saves locally)
+      const openTaskSubmissionModal = (task) => {
+        if (!currentTeam) {
+          setErrorModal({
+            isOpen: true,
+            title: "Unassigned Player",
+            message:
+              "You are currently Unassigned! Ask the Organizer to assign you to a Squad before submitting tasks."
+          });
+          return;
+        }
+        clearSelectedMedia();
+        setSubmissionText("");
+        setTaskModal({ isOpen: true, task });
+      };
+
+      const handleCompleteTask = async () => {
+        if (!currentTeam || !taskModal.task || !currentLoggedInPlayer || isSubmittingTask) return;
+
+        setIsSubmittingTask(true);
+        setUploadProgressPct(0);
+
+        try {
+          const { task } = taskModal;
+          let finalMediaUrl =
+            mediaFileUrl ||
+            "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=800&q=80";
+          const finalMediaType = mediaFileUrl ? mediaFileType : "image";
+
+          // If connected to Firebase & user chose a local file/blob, upload to Firebase Storage
+          if (fbStatus === "connected" && pendingUploadBlob && storageRef.current) {
+            try {
+              finalMediaUrl = await uploadBlobToFirebaseStorage(
+                pendingUploadBlob,
+                finalMediaType
+              );
+            } catch (storageErr) {
+              // Fallback for compressed images if Storage bucket rules aren't open yet
+              if (finalMediaType === "image" && mediaFileUrl.startsWith("data:image")) {
+                finalMediaUrl = mediaFileUrl;
+              } else {
+                throw new Error(
+                  "Firebase Storage upload failed (" +
+                    (storageErr.message || "check Storage rules") +
+                    ")."
+                );
+              }
+            }
+          }
+
+          const id = "prog_" + Date.now();
+          const newEntry = {
+            id,
+            teamId: currentTeam.id,
+            taskId: task.id,
+            userId: currentLoggedInPlayer.id,
+            userName: currentLoggedInPlayer.displayName,
+            points: Number(task.points) || 0,
+            note: submissionText.trim() || "Completed challenge!",
+            mediaUrl: finalMediaUrl,
+            mediaType: finalMediaType,
+            timestamp: Date.now()
+          };
+
+          if (fbStatus === "connected" && dbRef.current) {
+            await dbRef.current
+              .collection("pooters_hunt")
+              .doc("main_game")
+              .collection("progress")
+              .doc(id)
+              .set(newEntry);
+          } else {
+            setProgress((prev) => [newEntry, ...prev]);
+          }
+
+          setTaskModal({ isOpen: false, task: null });
+          setSubmissionText("");
+          clearSelectedMedia();
+        } catch (err) {
+          setErrorModal({
+            isOpen: true,
+            title: "Upload Error",
+            message: err.message || "Could not submit task proof."
+          });
+        } finally {
+          setIsSubmittingTask(false);
+          setUploadProgressPct(0);
+        }
+      };
+
+      // Status Pill Helper
+      const renderConnectionBadge = (darkBg = true) => {
+        if (fbStatus === "connected") {
+          return (
+            <span
+              className={`inline-flex items-center gap-1.5 text-[11px] font-black uppercase px-2.5 py-1 rounded-full ${
+                darkBg
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                  : "bg-emerald-100 text-emerald-800 border border-emerald-300"
+              }`}
             >
-              ← Back to Player Login
-            </button>
-          </form>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Cloud Live Sync
+            </span>
+          );
+        }
+        if (fbStatus === "connecting") {
+          return (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              Connecting...
+            </span>
+          );
+        }
+        if (fbStatus === "error") {
+          return (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40">
+              Sync Error
+            </span>
+          );
+        }
+        return (
+          <span
+            className={`inline-flex items-center gap-1.5 text-[11px] font-black uppercase px-2.5 py-1 rounded-full ${
+              darkBg
+                ? "bg-white/10 text-amber-200 border border-white/15"
+                : "bg-slate-200 text-slate-700"
+            }`}
+          >
+            Local Demo Mode
+          </span>
+        );
+      };
 
-          <Modal 
-            isOpen={errorModal.isOpen} 
-            onClose={() => setErrorModal({ isOpen: false, message: '' })}
-            title="Notice"
-            primaryAction={() => setErrorModal({ isOpen: false, message: '' })}
-            primaryLabel="OK"
+      // =========================================================================
+      // 11. ORGANIZER PORTAL VIEW
+      // =========================================================================
+      if (portalMode === "organizer") {
+        if (!isOrganizerAuthed) {
+          return (
+            <div className="min-h-screen bg-slate-900 text-white p-6 flex flex-col items-center justify-center">
+              <div className="mb-4">{renderConnectionBadge(true)}</div>
+              <Icon name="shield" size={64} className="mb-5 text-amber-400" />
+              <h1 className="text-3xl font-black mb-2 text-center uppercase">Organizer Portal</h1>
+              <p className="text-slate-400 mb-8 text-center text-sm font-medium">
+                Enter password to manage Pooters Scavenger Hunt
+              </p>
+
+              <form onSubmit={handleOrganizerAuth} className="w-full max-w-sm flex flex-col gap-4">
+                <input
+                  type="password"
+                  placeholder="Organizer Password (pooters2026)"
+                  value={organizerPasswordInput}
+                  onChange={(e) => setOrganizerPasswordInput(e.target.value)}
+                  className="w-full px-5 py-4 rounded-xl text-slate-900 font-bold focus:outline-none focus:ring-4 focus:ring-amber-500"
+                  required
+                />
+                <button
+                  type="submit"
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-amber-950 font-black text-lg py-4 rounded-xl uppercase shadow-lg"
+                >
+                  Unlock Organizer Dashboard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPortalMode("player")}
+                  className="text-slate-400 hover:text-white font-bold text-sm mt-4 text-center"
+                >
+                  ← Back to Player Login
+                </button>
+              </form>
+
+              <Modal
+                isOpen={errorModal.isOpen}
+                onClose={() => setErrorModal({ isOpen: false, title: "Notice", message: "" })}
+                title={errorModal.title}
+                primaryAction={() => setErrorModal({ isOpen: false, title: "Notice", message: "" })}
+                primaryLabel="OK"
+              >
+                {errorModal.message}
+              </Modal>
+            </div>
+          );
+        }
+
+        const unassignedPlayers = registeredPlayers.filter(
+          (p) => !p.teamId || !teams.some((t) => t.id === p.teamId)
+        );
+
+        return (
+          <div className="min-h-screen bg-slate-100 text-slate-900 pb-20">
+            <header className="sticky top-0 z-30 bg-slate-900 text-white px-4 sm:px-6 py-4 flex flex-wrap justify-between items-center gap-3 shadow-md">
+              <div className="flex items-center gap-3">
+                <Icon name="shield" size={28} className="text-amber-400 shrink-0" />
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h1 className="text-lg sm:text-xl font-black uppercase tracking-wider leading-none">
+                      Organizer Portal
+                    </h1>
+                    {renderConnectionBadge(true)}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {teams.length} Squads • {registeredPlayers.length} Players • {tasks.length} Tasks
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setFbModalOpen(true)}
+                  className="bg-amber-500 hover:bg-amber-400 text-amber-950 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black uppercase flex items-center gap-1.5 shadow"
+                >
+                  <Icon name="cloud" size={16} /> Firebase Setup
+                </button>
+                <button
+                  onClick={() => {
+                    setPortalMode("player");
+                    setIsOrganizerAuthed(false);
+                  }}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold"
+                >
+                  Exit
+                </button>
+              </div>
+            </header>
+
+            <main className="max-w-3xl mx-auto p-4 space-y-6">
+              {/* Cloud Status Banner */}
+              <div
+                className={`rounded-2xl p-4 border-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                  fbStatus === "connected"
+                    ? "bg-emerald-50 border-emerald-300 text-emerald-950"
+                    : fbStatus === "error"
+                    ? "bg-rose-50 border-rose-300 text-rose-950"
+                    : "bg-amber-50 border-amber-300 text-amber-950"
+                }`}
+              >
+                <div className="text-xs sm:text-sm font-bold">
+                  {fbStatus === "connected" && (
+                    <>
+                      Connected to Firebase project{" "}
+                      <span className="font-mono underline">{firebaseConfig?.projectId}</span>. All
+                      squads, scores, and photos/videos sync live across every phone!
+                    </>
+                  )}
+                  {fbStatus === "demo" && (
+                    <>
+                      Running in <strong>Local Demo Mode</strong> (saved on this device only). Tap{" "}
+                      <strong>Firebase Setup</strong> above to sync live across all players' phones on
+                      GitHub Pages.
+                    </>
+                  )}
+                  {fbStatus === "error" && <>Firebase Connection Issue: {fbErrorMsg}</>}
+                </div>
+
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  {fbStatus === "connected" && teams.length === 0 && (
+                    <button
+                      onClick={handleSeedCloudData}
+                      className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black uppercase px-3 py-2 rounded-xl"
+                    >
+                      + Seed Starter Game
+                    </button>
+                  )}
+                  {fbStatus === "connected" && (
+                    <button
+                      onClick={handleCopyConnectLink}
+                      className="bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-black uppercase px-3 py-2 rounded-xl flex items-center gap-1.5"
+                    >
+                      <Icon name={copiedShareLink ? "check" : "share"} size={14} />
+                      {copiedShareLink ? "Player Link Copied!" : "Copy 1-Tap Player Link"}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 1. Squads & Lineups */}
+              <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-5 sm:p-6">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                  <h3 className="text-xl font-black uppercase text-amber-900 flex items-center gap-2">
+                    <Icon name="users" size={22} /> 1. Squads & Lineups
+                  </h3>
+                  {unassignedPlayers.length > 0 && (
+                    <span className="text-xs font-bold bg-amber-100 text-amber-900 px-3 py-1 rounded-full">
+                      {unassignedPlayers.length} Unassigned Player
+                      {unassignedPlayers.length > 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+
+                <form onSubmit={handleAdminAddTeam} className="flex flex-col sm:flex-row gap-3 mb-6">
+                  <input
+                    type="text"
+                    placeholder="New Squad Name (e.g. Gamma Pooters)"
+                    value={newTeamName}
+                    onChange={(e) => setNewTeamName(e.target.value)}
+                    className="flex-1 px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-bold focus:outline-none focus:border-amber-600"
+                    required
+                  />
+                  <select
+                    value={newTeamColor}
+                    onChange={(e) => setNewTeamColor(e.target.value)}
+                    className="px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-bold focus:outline-none"
+                  >
+                    {SQUAD_COLORS.map((c) => (
+                      <option key={c.value} value={c.value}>
+                        {c.label} Badge
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="submit"
+                    className="bg-amber-800 hover:bg-amber-900 text-white px-5 py-3 rounded-xl font-bold uppercase shrink-0"
+                  >
+                    + Create Squad
+                  </button>
+                </form>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {teams.map((t) => {
+                    const squadMembers = registeredPlayers.filter((p) => p.teamId === t.id);
+                    const availableToAdd = registeredPlayers.filter((p) => p.teamId !== t.id);
+
+                    return (
+                      <div
+                        key={t.id}
+                        className="bg-slate-50 rounded-2xl border-2 border-slate-200 p-4 flex flex-col justify-between"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span
+                                className={`w-3.5 h-3.5 rounded-full shrink-0 ${
+                                  t.color || "bg-amber-600"
+                                }`}
+                              />
+                              <h4 className="font-black text-slate-900 text-lg truncate">{t.name}</h4>
+                              <span className="text-xs bg-white border border-slate-200 text-slate-700 font-bold px-2 py-0.5 rounded-full shrink-0">
+                                {squadMembers.length}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteTeam(t.id)}
+                              className="text-red-600 hover:bg-red-50 p-1.5 rounded-lg flex items-center gap-1 font-bold text-xs shrink-0"
+                              title="Delete Squad"
+                            >
+                              <Icon name="trash" size={16} />
+                            </button>
+                          </div>
+
+                          <div className="space-y-2 mb-4">
+                            {squadMembers.length === 0 ? (
+                              <p className="text-xs text-slate-400 italic py-2">
+                                No players in this squad yet.
+                              </p>
+                            ) : (
+                              squadMembers.map((member) => (
+                                <div
+                                  key={member.id}
+                                  className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-slate-200"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="w-6 h-6 rounded-full bg-amber-100 text-amber-900 font-black text-xs flex items-center justify-center shrink-0">
+                                      {member.displayName.charAt(0).toUpperCase()}
+                                    </span>
+                                    <span className="font-bold text-slate-800 text-sm truncate">
+                                      {member.displayName}
+                                    </span>
+                                    <span className="text-[11px] font-mono text-slate-400">
+                                      #{member.secretCode}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAssignPlayerToTeam(member.id, "")}
+                                    className="text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg p-1 transition-colors"
+                                    title={`Remove ${member.displayName} from ${t.name}`}
+                                  >
+                                    <Icon name="x" size={16} />
+                                  </button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-200">
+                          <select
+                            value=""
+                            onChange={(e) => handleAssignPlayerToTeam(e.target.value, t.id)}
+                            className="w-full px-3 py-2.5 bg-white rounded-xl border border-slate-300 text-xs font-bold text-slate-700 focus:outline-none focus:border-amber-600"
+                          >
+                            <option value="">+ Add or transfer player to {t.name}...</option>
+                            {availableToAdd.map((p) => {
+                              const currentSquad =
+                                teams.find((sq) => sq.id === p.teamId)?.name || "Unassigned";
+                              return (
+                                <option key={p.id} value={p.id}>
+                                  {p.displayName} ({currentSquad})
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Player Roster & Secret Login Codes */}
+              <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-5 sm:p-6">
+                <h3 className="text-xl font-black mb-4 uppercase text-amber-900 flex items-center gap-2">
+                  <Icon name="userPlus" size={22} /> 2. Player Roster & Squad Assignments
+                </h3>
+                <form
+                  onSubmit={handleAdminAddPlayer}
+                  className="space-y-3 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200"
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <input
+                      type="text"
+                      placeholder="Player Name"
+                      value={newPlayerName}
+                      onChange={(e) => setNewPlayerName(e.target.value)}
+                      className="px-4 py-3 bg-white rounded-xl border-2 border-slate-200 font-bold focus:outline-none focus:border-amber-600"
+                      required
+                    />
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="4-Digit Code"
+                        value={newPlayerCode}
+                        onChange={(e) => setNewPlayerCode(e.target.value)}
+                        className="w-full px-4 py-3 bg-white rounded-xl border-2 border-slate-200 font-bold focus:outline-none focus:border-amber-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={generateRandomCode}
+                        className="px-3 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold shrink-0"
+                        title="Auto-generate 4-digit code"
+                      >
+                        <Icon name="refresh" size={18} />
+                      </button>
+                    </div>
+                    <select
+                      value={newPlayerTeamId}
+                      onChange={(e) => setNewPlayerTeamId(e.target.value)}
+                      className="px-4 py-3 bg-white rounded-xl border-2 border-slate-200 font-bold focus:outline-none focus:border-amber-600"
+                    >
+                      <option value="">Unassigned</option>
+                      {teams.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full bg-amber-800 hover:bg-amber-900 text-white font-bold py-3 rounded-xl uppercase"
+                  >
+                    + Add Player to Roster
+                  </button>
+                </form>
+
+                <div className="space-y-2.5">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    All Players ({registeredPlayers.length}) — Change Squad Anytime
+                  </h4>
+                  {registeredPlayers.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-bold text-slate-900 text-base truncate">
+                          {p.displayName}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyCode(p)}
+                          className="inline-flex items-center gap-1 text-xs bg-white border border-slate-200 hover:border-amber-500 px-2.5 py-1 rounded-lg font-mono font-bold text-slate-700"
+                          title="Copy login credentials"
+                        >
+                          <Icon name="key" size={12} className="text-amber-600" />
+                          {p.secretCode}
+                          <Icon
+                            name={copiedPlayerId === p.id ? "check" : "copy"}
+                            size={12}
+                            className={
+                              copiedPlayerId === p.id ? "text-emerald-600" : "text-slate-400"
+                            }
+                          />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <select
+                          value={teams.some((t) => t.id === p.teamId) ? p.teamId : ""}
+                          onChange={(e) => handleAssignPlayerToTeam(p.id, e.target.value)}
+                          className={`flex-1 sm:w-44 px-3 py-2 rounded-xl border text-xs font-bold focus:outline-none ${
+                            teams.some((t) => t.id === p.teamId)
+                              ? "bg-amber-50 border-amber-300 text-amber-950"
+                              : "bg-slate-200 border-slate-300 text-slate-700"
+                          }`}
+                        >
+                          <option value="">Unassigned</option>
+                          {teams.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => handleDeletePlayer(p.id)}
+                          className="text-red-600 hover:bg-red-50 p-2 rounded-lg shrink-0"
+                          title="Delete Player"
+                        >
+                          <Icon name="trash" size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. Create Tasks & 1v1 Duels */}
+              <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-5 sm:p-6">
+                <h3 className="text-xl font-black mb-4 uppercase text-amber-900">
+                  3. Create Task or 1v1 Duel
+                </h3>
+                <form onSubmit={handleAdminAddTask} className="space-y-4">
+                  <input
+                    type="text"
+                    placeholder="Task Title"
+                    value={newTaskTitle}
+                    onChange={(e) => setNewTaskTitle(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-bold focus:outline-none"
+                    required
+                  />
+                  <textarea
+                    placeholder="Description & Rules"
+                    value={newTaskDesc}
+                    onChange={(e) => setNewTaskDesc(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-medium focus:outline-none h-20"
+                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <input
+                      type="number"
+                      value={newTaskPoints}
+                      onChange={(e) => setNewTaskPoints(e.target.value)}
+                      className="px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-bold focus:outline-none"
+                      min="5"
+                      max="500"
+                    />
+                    <select
+                      value={newTaskIsTeam ? "team" : "1v1"}
+                      onChange={(e) => setNewTaskIsTeam(e.target.value === "team")}
+                      className="px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-bold focus:outline-none"
+                    >
+                      <option value="team">Team Task (Group)</option>
+                      <option value="1v1">1v1 Head-to-Head Duel</option>
+                    </select>
+                  </div>
+
+                  {!newTaskIsTeam && (
+                    <div className="grid grid-cols-2 gap-4 bg-purple-50 p-4 rounded-xl border border-purple-200">
+                      <select
+                        value={newTaskP1}
+                        onChange={(e) => setNewTaskP1(e.target.value)}
+                        className="w-full px-3 py-2 bg-white rounded-lg font-bold border border-purple-300 text-sm"
+                      >
+                        <option value="">-- Player 1 --</option>
+                        {registeredPlayers.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.displayName}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={newTaskP2}
+                        onChange={(e) => setNewTaskP2(e.target.value)}
+                        className="w-full px-3 py-2 bg-white rounded-lg font-bold border border-purple-300 text-sm"
+                      >
+                        <option value="">-- Player 2 --</option>
+                        {registeredPlayers.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.displayName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="w-full bg-amber-800 hover:bg-amber-900 text-white font-black py-4 rounded-xl uppercase"
+                  >
+                    Publish Task / Duel
+                  </button>
+                </form>
+
+                <div className="mt-6 space-y-2">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    Existing Tasks ({tasks.length})
+                  </h4>
+                  {tasks.map((t) => (
+                    <div
+                      key={t.id}
+                      className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200"
+                    >
+                      <div>
+                        <span className="font-bold text-slate-900">{t.title}</span>
+                        <span className="ml-2 text-xs bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded">
+                          {t.isTeamTask ? "Team" : "1v1"} • {t.points} pts
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteTask(t.id)}
+                        className="text-red-600 hover:text-red-800 p-1.5"
+                      >
+                        <Icon name="trash" size={18} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </main>
+
+            {/* Firebase Setup Modal */}
+            <Modal
+              isOpen={fbModalOpen}
+              onClose={() => setFbModalOpen(false)}
+              title="Firebase Cloud Setup"
+              primaryAction={handleSaveFirebaseConfig}
+              primaryLabel="Save & Connect"
+              secondaryLabel="Cancel"
+            >
+              <div className="space-y-4 text-sm">
+                <p className="text-slate-600 leading-relaxed">
+                  To sync scores, squads, and photos/videos across all phones on GitHub Pages:
+                </p>
+                <ol className="list-decimal pl-5 space-y-1.5 text-xs text-slate-700 font-medium">
+                  <li>
+                    Create a free project at <strong>console.firebase.google.com</strong>.
+                  </li>
+                  <li>
+                    Enable <strong>Cloud Firestore</strong> (Start in <em>Test Mode</em>) and{" "}
+                    <strong>Storage</strong> (Start in <em>Test Mode</em>).
+                  </li>
+                  <li>
+                    Add a <strong>Web App (&lt;/&gt;)</strong> in Project Settings and paste your{" "}
+                    <code className="bg-slate-100 px-1 rounded">firebaseConfig</code> below:
+                  </li>
+                </ol>
+
+                <textarea
+                  rows="7"
+                  placeholder={`{\n  "apiKey": "AIzaSy...",\n  "authDomain": "your-app.firebaseapp.com",\n  "projectId": "your-app",\n  "storageBucket": "your-app.appspot.com",\n  "messagingSenderId": "123456789",\n  "appId": "1:123456:web:abcdef"\n}`}
+                  value={fbConfigText}
+                  onChange={(e) => setFbConfigText(e.target.value)}
+                  className="w-full p-3 bg-slate-900 text-emerald-300 font-mono text-xs rounded-xl border-2 border-slate-700 focus:outline-none focus:border-amber-500"
+                />
+
+                {firebaseConfig && (
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      type="button"
+                      onClick={handleDisconnectFirebase}
+                      className="text-xs font-bold text-rose-600 hover:underline"
+                    >
+                      Disconnect & Revert to Local Mode
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyConnectLink}
+                      className="text-xs font-bold text-amber-800 hover:underline flex items-center gap-1"
+                    >
+                      <Icon name="share" size={13} />
+                      {copiedShareLink ? "Link Copied!" : "Copy Player Auto-Connect Link"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </Modal>
+
+            <Modal
+              isOpen={errorModal.isOpen}
+              onClose={() => setErrorModal({ isOpen: false, title: "Notice", message: "" })}
+              title={errorModal.title}
+              primaryAction={() => setErrorModal({ isOpen: false, title: "Notice", message: "" })}
+              primaryLabel="OK"
+            >
+              {errorModal.message}
+            </Modal>
+          </div>
+        );
+      }
+
+      // =========================================================================
+      // 12. PLAYER LOGIN SCREEN
+      // =========================================================================
+      if (!currentLoggedInPlayer) {
+        return (
+          <div className="min-h-screen bg-amber-950 text-white p-6 flex flex-col items-center justify-center">
+            <div className="mb-4">{renderConnectionBadge(true)}</div>
+            <Icon name="sparkles" size={64} className="mb-4 text-amber-400 animate-pulse" />
+            <h1 className="text-4xl font-black mb-2 text-center uppercase tracking-tight">
+              Pooters Hunt
+            </h1>
+            <p className="text-amber-200 mb-6 text-center text-base font-medium">
+              Log in with your name and secret code
+            </p>
+
+            <form onSubmit={handlePlayerLogin} className="w-full max-w-sm flex flex-col gap-3.5">
+              <input
+                type="text"
+                placeholder="Your Pooter Name (e.g. Alice)..."
+                value={playerLoginName}
+                onChange={(e) => setPlayerLoginName(e.target.value)}
+                className="w-full px-5 py-4 rounded-xl text-lg text-slate-900 font-bold placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-amber-500 shadow-lg"
+                required
+              />
+              <input
+                type="password"
+                placeholder="Secret Code (e.g. 1111)..."
+                value={playerLoginCode}
+                onChange={(e) => setPlayerLoginCode(e.target.value)}
+                className="w-full px-5 py-4 rounded-xl text-lg text-slate-900 font-bold placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-amber-500 shadow-lg"
+                required
+              />
+
+              <button
+                type="submit"
+                className="w-full bg-amber-500 hover:bg-amber-400 text-amber-950 font-black text-xl py-4 rounded-xl shadow-lg uppercase tracking-wider mt-1 transition-colors"
+              >
+                Enter Hunt
+              </button>
+            </form>
+
+            {registeredPlayers.length > 0 && (
+              <div className="mt-6 w-full max-w-sm">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-amber-300/70 text-center mb-2">
+                  Quick Login (Tap to Autofill)
+                </p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {registeredPlayers.slice(0, 8).map((p) => {
+                    const sq = teams.find((t) => t.id === p.teamId);
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => quickFillDemoPlayer(p)}
+                        className="bg-amber-900/80 hover:bg-amber-800 border border-amber-700/70 px-3 py-1.5 rounded-full text-xs font-bold text-amber-100 flex items-center gap-1.5 transition-colors"
+                      >
+                        <span>{p.displayName}</span>
+                        <span className="text-amber-400 font-mono">({p.secretCode})</span>
+                        {sq && (
+                          <span className="text-[10px] text-amber-300/70">
+                            • {sq.name.split(" ")[0]}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => setPortalMode("organizer")}
+              className="mt-8 flex items-center gap-2 bg-amber-900/50 hover:bg-amber-900 px-4 py-2.5 rounded-xl border border-amber-800 text-amber-200 text-sm font-bold uppercase tracking-wider transition-colors"
+            >
+              <Icon name="shield" size={16} /> Organizer Portal
+            </button>
+
+            <Modal
+              isOpen={errorModal.isOpen}
+              onClose={() => setErrorModal({ isOpen: false, title: "Notice", message: "" })}
+              title={errorModal.title}
+              primaryAction={() => setErrorModal({ isOpen: false, title: "Notice", message: "" })}
+              primaryLabel="OK"
+            >
+              {errorModal.message}
+            </Modal>
+          </div>
+        );
+      }
+
+      // =========================================================================
+      // 13. PLAYER DASHBOARD TABS (TASKS, MEDIA GALLERY, FEED, RANK, SQUAD)
+      // =========================================================================
+      const renderTasksTab = () => {
+        const teamTasks = tasks.filter((t) => t.isTeamTask);
+        const soloTasks = tasks.filter((t) => !t.isTeamTask);
+
+        return (
+          <div className="fade-in pb-28 space-y-8 pt-4">
+            {!currentTeam && (
+              <div className="bg-amber-100 border-2 border-amber-300 text-amber-950 p-4 rounded-2xl flex items-start gap-3">
+                <Icon name="alert" size={20} className="shrink-0 mt-0.5 text-amber-700" />
+                <div className="text-sm font-bold">
+                  You are currently Unassigned! Ask the Organizer to assign you to a squad so you
+                  can submit tasks and earn points.
+                </div>
+              </div>
+            )}
+
+            {/* TEAM TASKS */}
+            <section>
+              <div className="flex items-center gap-2 mb-4 px-2">
+                <Icon name="users" size={24} className="text-amber-800" />
+                <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
+                  Team Tasks
+                </h2>
+              </div>
+              <div className="space-y-4">
+                {teamTasks.length === 0 ? (
+                  <p className="text-slate-500 italic p-4 bg-white rounded-xl">
+                    No team tasks available yet.
+                  </p>
+                ) : (
+                  teamTasks.map((task) => {
+                    const isCompleted = progress.some(
+                      (p) => p.teamId === currentTeam?.id && p.taskId === task.id
+                    );
+                    return (
+                      <div
+                        key={task.id}
+                        onClick={() => !isCompleted && openTaskSubmissionModal(task)}
+                        className={`relative p-5 rounded-2xl shadow-sm border-2 transition-transform ${
+                          isCompleted
+                            ? "bg-amber-50 border-amber-200 opacity-75"
+                            : "bg-white border-slate-200 active:scale-[0.98] cursor-pointer"
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`p-2 rounded-xl ${
+                                isCompleted
+                                  ? "bg-amber-200 text-amber-900"
+                                  : "bg-amber-100 text-amber-800"
+                              }`}
+                            >
+                              <Icon name="users" size={24} />
+                            </div>
+                            <h3 className="font-bold text-xl text-slate-900 leading-tight">
+                              {task.title}
+                            </h3>
+                          </div>
+                          <span className="font-black text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg text-sm border border-amber-200 shrink-0">
+                            {task.points} PTS
+                          </span>
+                        </div>
+                        <p className="text-slate-600 font-medium text-base mt-3 leading-snug pr-8">
+                          {task.description}
+                        </p>
+                        {isCompleted && (
+                          <div className="absolute bottom-5 right-5 text-amber-700 bg-amber-200 rounded-full p-1">
+                            <Icon name="checkCircle" size={26} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+
+            {/* 1V1 DUELS */}
+            <section>
+              <div className="flex items-center gap-2 mb-4 px-2">
+                <Icon name="swords" size={24} className="text-amber-700" />
+                <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
+                  1v1 Head-to-Head Duels
+                </h2>
+              </div>
+              <div className="space-y-4">
+                {soloTasks.length === 0 ? (
+                  <p className="text-slate-500 italic p-4 bg-white rounded-xl">
+                    No duels assigned yet.
+                  </p>
+                ) : (
+                  soloTasks.map((task) => {
+                    const isCompleted = progress.some((p) => p.taskId === task.id);
+                    const winningSubmission = progress.find((p) => p.taskId === task.id);
+
+                    const p1 =
+                      registeredPlayers.find((p) => p.id === task.p1Id)?.displayName || "Player 1";
+                    const p2 =
+                      registeredPlayers.find((p) => p.id === task.p2Id)?.displayName || "Player 2";
+
+                    return (
+                      <div
+                        key={task.id}
+                        onClick={() => !isCompleted && openTaskSubmissionModal(task)}
+                        className={`relative p-5 rounded-2xl shadow-sm border-2 transition-transform ${
+                          isCompleted
+                            ? "bg-amber-50 border-amber-200 opacity-75"
+                            : "bg-white border-slate-200 active:scale-[0.98] cursor-pointer"
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`p-2 rounded-xl ${
+                                isCompleted
+                                  ? "bg-amber-200 text-amber-900"
+                                  : "bg-purple-100 text-purple-800"
+                              }`}
+                            >
+                              <Icon name="swords" size={24} />
+                            </div>
+                            <h3 className="font-bold text-xl text-slate-900 leading-tight">
+                              {task.title}
+                            </h3>
+                          </div>
+                          <span className="font-black text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg text-sm border border-amber-200 shrink-0">
+                            {task.points} PTS
+                          </span>
+                        </div>
+                        <p className="text-slate-600 font-medium text-base mt-2 mb-3 leading-snug">
+                          {task.description}
+                        </p>
+
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-center text-sm font-bold text-slate-700 mb-2">
+                          <span className="text-amber-900">{p1}</span>
+                          <span className="text-xs bg-amber-200 px-2 py-0.5 rounded text-amber-950">
+                            VS
+                          </span>
+                          <span className="text-amber-900">{p2}</span>
+                        </div>
+
+                        {isCompleted ? (
+                          <div className="text-xs font-bold text-amber-800 bg-amber-100 px-3 py-1.5 rounded-lg flex items-center justify-between">
+                            <span>Won by: {winningSubmission?.userName}</span>
+                            <Icon name="checkCircle" size={18} />
+                          </div>
+                        ) : (
+                          <div className="text-xs font-bold uppercase tracking-wider text-purple-700 bg-purple-50 px-2.5 py-1 rounded-md inline-block">
+                            Tap to submit duel result
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          </div>
+        );
+      };
+
+      const renderGalleryTab = () => {
+        const mediaEntries = [...progress]
+          .filter((item) => item.mediaUrl || item.isExpiredBlob)
+          .sort((a, b) => b.timestamp - a.timestamp);
+
+        return (
+          <div className="fade-in pb-28 pt-4">
+            <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight mb-6 px-2 text-center flex items-center justify-center gap-3">
+              <Icon name="camera" size={30} className="text-amber-600" />
+              Media Gallery
+            </h2>
+
+            {mediaEntries.length === 0 ? (
+              <div className="bg-white p-8 rounded-2xl text-center border-2 border-slate-200">
+                <p className="text-slate-500 font-medium italic">
+                  No photos or videos uploaded yet!
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {mediaEntries.map((item, idx) => {
+                  const team = teams.find((t) => t.id === item.teamId);
+                  const task = tasks.find((t) => t.id === item.taskId);
+                  return (
+                    <div
+                      key={item.id || idx}
+                      className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 overflow-hidden flex flex-col"
+                    >
+                      <div
+                        onClick={() =>
+                          item.mediaUrl && setMediaViewerModal({ isOpen: true, item })
+                        }
+                        className="relative aspect-video bg-slate-900 flex items-center justify-center cursor-pointer group overflow-hidden"
+                      >
+                        {item.isExpiredBlob && !item.mediaUrl ? (
+                          <div className="text-slate-400 text-xs font-bold p-4 text-center">
+                            <Icon name="video" size={28} className="mx-auto mb-1 opacity-60" />
+                            Local Session Video
+                          </div>
+                        ) : item.mediaType === "video" ? (
+                          <>
+                            <video
+                              src={item.mediaUrl}
+                              className="w-full h-full object-cover"
+                              muted
+                              playsInline
+                            />
+                            <div className="absolute inset-0 bg-black/35 flex items-center justify-center">
+                              <div className="w-12 h-12 rounded-full bg-amber-500 text-amber-950 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                                <Icon name="play" size={20} className="ml-0.5" />
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <img
+                              src={item.mediaUrl}
+                              alt={task?.title || "Submission"}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                            />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                              <Icon
+                                name="eye"
+                                size={24}
+                                className="text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                              />
+                            </div>
+                          </>
+                        )}
+                        <span className="absolute top-2.5 right-2.5 bg-black/75 text-white text-[10px] font-black uppercase px-2.5 py-1 rounded-full">
+                          {item.mediaType === "video" ? "Video" : "Photo"}
+                        </span>
+                      </div>
+                      <div className="p-4 flex-1 flex flex-col justify-between">
+                        <div>
+                          <div className="flex justify-between items-start gap-2">
+                            <h3 className="font-black text-slate-900 text-base leading-tight">
+                              {task?.title || "Challenge"}
+                            </h3>
+                            <span className="text-xs font-black text-amber-700 shrink-0">
+                              +{item.points} pts
+                            </span>
+                          </div>
+                          <p className="text-xs font-bold text-amber-900 mt-0.5">
+                            {item.userName} • {team?.name || "Squad"}
+                          </p>
+                          {item.note && (
+                            <p className="text-xs text-slate-600 italic mt-2">"{item.note}"</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const renderFeedTab = () => {
+        const sortedFeed = [...progress].sort((a, b) => b.timestamp - a.timestamp);
+
+        return (
+          <div className="fade-in pb-28 pt-4">
+            <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight mb-6 px-2 text-center flex items-center justify-center gap-3">
+              <Icon name="zap" size={32} className="text-amber-600" />
+              Live Activity Feed
+            </h2>
+
+            {sortedFeed.length === 0 ? (
+              <div className="bg-white p-8 rounded-2xl text-center border-2 border-slate-200">
+                <p className="text-slate-500 font-medium italic">
+                  No activity yet. Complete tasks to get the feed moving!
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {sortedFeed.map((item, index) => {
+                  const team = teams.find((t) => t.id === item.teamId);
+                  const task = tasks.find((t) => t.id === item.taskId);
+                  return (
+                    <div
+                      key={item.id || index}
+                      className="bg-white p-4 rounded-2xl shadow-sm border-2 border-slate-200 flex items-start gap-3"
+                    >
+                      <div className="bg-amber-100 text-amber-900 p-2.5 rounded-xl shrink-0 mt-0.5">
+                        <Icon name="checkCircle" size={22} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start">
+                          <span className="font-black text-slate-900 text-base">
+                            {item.userName}
+                          </span>
+                          <span className="font-black text-amber-700 text-sm bg-amber-50 px-2 py-0.5 rounded">
+                            +{item.points} pts
+                          </span>
+                        </div>
+                        <p className="text-slate-600 text-sm font-medium mt-0.5">
+                          Completed{" "}
+                          <span className="font-bold text-slate-800">{task?.title || "Task"}</span>{" "}
+                          for{" "}
+                          <span className="text-amber-900 font-bold">{team?.name || "Squad"}</span>
+                        </p>
+                        {item.note && (
+                          <p className="mt-2 text-xs text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100 italic">
+                            "{item.note}"
+                          </p>
+                        )}
+                        {item.mediaUrl && (
+                          <div className="mt-3">
+                            {item.mediaType === "video" ? (
+                              <button
+                                onClick={() => setMediaViewerModal({ isOpen: true, item })}
+                                className="flex items-center gap-2 bg-purple-50 text-purple-700 px-3 py-2 rounded-xl text-xs font-bold border border-purple-200 hover:bg-purple-100"
+                              >
+                                <Icon name="video" size={16} /> Play Video Memory
+                              </button>
+                            ) : (
+                              <div
+                                onClick={() => setMediaViewerModal({ isOpen: true, item })}
+                                className="relative w-28 h-28 rounded-xl overflow-hidden border-2 border-slate-200 cursor-pointer hover:opacity-90"
+                              >
+                                <img
+                                  src={item.mediaUrl}
+                                  alt="Submission"
+                                  className="w-full h-full object-cover"
+                                />
+                                <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                  <Icon name="eye" size={20} className="text-white" />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const renderLeaderboardTab = () => {
+        return (
+          <div className="fade-in pb-28 pt-4">
+            <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight mb-6 px-2 text-center flex items-center justify-center gap-3">
+              <Icon name="trophy" size={32} className="text-amber-500" />
+              Squad Leaderboard
+            </h2>
+
+            <div className="space-y-4">
+              {leaderBoard.map((team, index) => (
+                <div
+                  key={team.id}
+                  className={`flex items-center p-5 rounded-2xl shadow-sm border-2 ${
+                    team.id === currentTeam?.id
+                      ? "bg-amber-900 border-amber-900 text-white transform scale-[1.02] shadow-lg"
+                      : "bg-white border-slate-200 text-slate-900"
+                  }`}
+                >
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg shrink-0 mr-4 ${
+                      index === 0
+                        ? "bg-amber-400 text-amber-950"
+                        : index === 1
+                        ? "bg-slate-300 text-slate-800"
+                        : "bg-amber-700 text-amber-100"
+                    }`}
+                  >
+                    #{index + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-bold text-xl truncate">{team.name}</h3>
+                    {team.id === currentTeam?.id && (
+                      <p className="text-sm font-medium text-amber-300">Your Squad</p>
+                    )}
+                  </div>
+                  <div className="font-black text-2xl">{team.score}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      };
+
+      const renderProfileTab = () => {
+        return (
+          <div className="fade-in pb-28 pt-4">
+            <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight mb-6 px-2">
+              Pooter Profile
+            </h2>
+
+            <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-6 mb-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">
+                    Your Name
+                  </h3>
+                  <p className="text-2xl font-black text-slate-900">
+                    {currentLoggedInPlayer.displayName}
+                  </p>
+                </div>
+                {renderConnectionBadge(false)}
+              </div>
+
+              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1 mt-4">
+                Assigned Squad
+              </h3>
+              <p className="text-2xl font-black text-amber-800 mb-6">
+                {currentTeam?.name || "Unassigned"}
+              </p>
+
+              <button
+                onClick={() => setCurrentLoggedInPlayerId(null)}
+                className="w-full flex items-center justify-center gap-2 bg-red-50 text-red-700 hover:bg-red-100 font-bold text-lg py-4 rounded-xl border border-red-200 transition-colors"
+              >
+                <Icon name="logOut" size={20} />
+                Log Out
+              </button>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-6">
+              <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight mb-4 flex items-center gap-2">
+                <Icon name="users" size={20} className="text-slate-500" />
+                Squad Roster ({teamMembers.length})
+              </h3>
+              {teamMembers.length === 0 ? (
+                <p className="text-slate-500 italic text-sm">No teammates assigned yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {teamMembers.map((member) => (
+                    <div
+                      key={member.id}
+                      className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100"
+                    >
+                      <div className="w-10 h-10 bg-amber-100 text-amber-900 rounded-full flex items-center justify-center font-black text-lg">
+                        {member.displayName.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="font-bold text-slate-800 text-lg">
+                        {member.displayName}
+                      </span>
+                      {member.id === currentLoggedInPlayer.id && (
+                        <span className="ml-auto text-xs font-bold text-amber-700 uppercase bg-amber-100 px-2.5 py-1 rounded">
+                          You
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-50 font-sans">
+          {/* Header */}
+          <header className="sticky top-0 z-30 bg-amber-950 text-white px-4 py-3.5 shadow-md flex justify-between items-center">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg sm:text-xl font-black uppercase tracking-widest leading-none">
+                  Pooters Hunt
+                </h1>
+                {fbStatus === "connected" && (
+                  <span
+                    className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"
+                    title="Cloud Sync Active"
+                  />
+                )}
+              </div>
+              <p className="text-amber-300 font-bold text-sm mt-1">
+                {currentLoggedInPlayer.displayName} • {currentTeam?.name || "Unassigned"}
+              </p>
+            </div>
+            <div className="bg-amber-900 px-4 py-2 rounded-xl flex items-center gap-2 border border-amber-800 shadow-inner">
+              <Icon name="trophy" size={18} className="text-amber-400" />
+              <span className="font-black text-xl">
+                {leaderBoard.find((t) => t.id === currentTeam?.id)?.score || 0}
+              </span>
+            </div>
+          </header>
+
+          {/* Main Content Area */}
+          <main className="max-w-xl mx-auto px-4">
+            {activeTab === "tasks" && renderTasksTab()}
+            {activeTab === "gallery" && renderGalleryTab()}
+            {activeTab === "feed" && renderFeedTab()}
+            {activeTab === "leaderboard" && renderLeaderboardTab()}
+            {activeTab === "profile" && renderProfileTab()}
+          </main>
+
+          {/* Bottom Navigation */}
+          <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t-2 border-slate-200 pb-safe">
+            <div className="max-w-xl mx-auto flex justify-around p-1.5">
+              <button
+                onClick={() => setActiveTab("tasks")}
+                className={`flex flex-col items-center p-2 rounded-2xl flex-1 transition-colors ${
+                  activeTab === "tasks" ? "text-amber-800 bg-amber-50" : "text-slate-500"
+                }`}
+              >
+                <Icon name="compass" size={20} className="mb-1" />
+                <span className="text-[10px] font-black uppercase">Tasks</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("gallery")}
+                className={`flex flex-col items-center p-2 rounded-2xl flex-1 transition-colors ${
+                  activeTab === "gallery" ? "text-amber-800 bg-amber-50" : "text-slate-500"
+                }`}
+              >
+                <Icon name="camera" size={20} className="mb-1" />
+                <span className="text-[10px] font-black uppercase">Media</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("feed")}
+                className={`flex flex-col items-center p-2 rounded-2xl flex-1 transition-colors ${
+                  activeTab === "feed" ? "text-amber-800 bg-amber-50" : "text-slate-500"
+                }`}
+              >
+                <Icon name="zap" size={20} className="mb-1" />
+                <span className="text-[10px] font-black uppercase">Feed</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("leaderboard")}
+                className={`flex flex-col items-center p-2 rounded-2xl flex-1 transition-colors ${
+                  activeTab === "leaderboard" ? "text-amber-800 bg-amber-50" : "text-slate-500"
+                }`}
+              >
+                <Icon name="trophy" size={20} className="mb-1" />
+                <span className="text-[10px] font-black uppercase">Rank</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("profile")}
+                className={`flex flex-col items-center p-2 rounded-2xl flex-1 transition-colors ${
+                  activeTab === "profile" ? "text-amber-800 bg-amber-50" : "text-slate-500"
+                }`}
+              >
+                <Icon name="users" size={20} className="mb-1" />
+                <span className="text-[10px] font-black uppercase">Squad</span>
+              </button>
+            </div>
+          </nav>
+
+          {/* Task Submission Modal */}
+          <Modal
+            isOpen={taskModal.isOpen}
+            onClose={() => !isSubmittingTask && setTaskModal({ isOpen: false, task: null })}
+            title="Submit Task Proof"
+            primaryAction={handleCompleteTask}
+            primaryDisabled={isProcessingMedia || isSubmittingTask}
+            primaryLabel={
+              isSubmittingTask
+                ? uploadProgressPct > 0
+                  ? `Uploading ${uploadProgressPct}%...`
+                  : "Submitting..."
+                : isProcessingMedia
+                ? "Processing Media..."
+                : "Submit & Score Points"
+            }
+            secondaryLabel="Cancel"
+          >
+            {taskModal.task && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-slate-900 font-black text-lg leading-tight">
+                    {taskModal.task.title}
+                  </p>
+                  <p className="text-slate-600 text-xs mt-1">{taskModal.task.description}</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Note / Caption
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Add a fun caption..."
+                    value={submissionText}
+                    onChange={(e) => setSubmissionText(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-900 font-medium text-sm focus:border-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                      <Icon name="camera" size={14} /> Photo or Video Proof
+                    </label>
+                    <div className="flex bg-slate-100 p-1 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => setMediaInputMode("file")}
+                        className={`text-xs font-bold px-2.5 py-1 rounded-md ${
+                          mediaInputMode === "file"
+                            ? "bg-amber-800 text-white"
+                            : "text-slate-600"
+                        }`}
+                      >
+                        Upload File
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMediaInputMode("url")}
+                        className={`text-xs font-bold px-2.5 py-1 rounded-md ${
+                          mediaInputMode === "url"
+                            ? "bg-amber-800 text-white"
+                            : "text-slate-600"
+                        }`}
+                      >
+                        Paste URL
+                      </button>
+                    </div>
+                  </div>
+
+                  {mediaInputMode === "file" ? (
+                    <div className="space-y-2">
+                      <label className="cursor-pointer block w-full bg-amber-100 hover:bg-amber-200 active:bg-amber-300 text-amber-950 font-black py-3.5 px-4 rounded-xl text-center border-2 border-dashed border-amber-400 transition-colors">
+                        <span className="flex items-center justify-center gap-2 text-sm">
+                          <Icon name="upload" size={18} />
+                          {isProcessingMedia
+                            ? "Optimizing Photo/Video..."
+                            : "Tap to Select Photo or Video"}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*,video/*"
+                          onChange={handleFileUpload}
+                          className="sr-only"
+                        />
+                      </label>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => selectSampleMedia("image")}
+                          className="text-xs bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-bold py-2 px-3 rounded-xl flex-1 flex items-center justify-center gap-1.5"
+                        >
+                          <Icon name="image" size={14} /> Sample Photo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => selectSampleMedia("video")}
+                          className="text-xs bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-bold py-2 px-3 rounded-xl flex-1 flex items-center justify-center gap-1.5"
+                        >
+                          <Icon name="video" size={14} /> Sample Video
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        placeholder="https://... image or .mp4 URL"
+                        value={mediaUrlInput}
+                        onChange={(e) => setMediaUrlInput(e.target.value)}
+                        className="flex-1 px-3.5 py-2.5 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-900 font-medium text-sm focus:border-amber-500 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleUrlSubmit}
+                        className="bg-amber-800 hover:bg-amber-900 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase"
+                      >
+                        Attach
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Live Media Preview */}
+                  {mediaFileUrl && (
+                    <div className="bg-slate-900 rounded-xl overflow-hidden border-2 border-emerald-500 shadow-md">
+                      <div className="relative max-h-48 flex items-center justify-center bg-black">
+                        {mediaFileType === "video" ? (
+                          <video
+                            src={mediaFileUrl}
+                            controls
+                            playsInline
+                            className="max-h-48 w-full object-contain"
+                          />
+                        ) : (
+                          <img
+                            src={mediaFileUrl}
+                            alt="Selected preview"
+                            className="max-h-48 w-full object-contain"
+                          />
+                        )}
+                      </div>
+                      <div className="px-3 py-2 bg-emerald-950 text-emerald-100 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-1.5 truncate pr-2">
+                          <Icon name="checkCircle" size={14} className="text-emerald-400 shrink-0" />
+                          <span className="font-bold truncate">
+                            {mediaFileMeta?.name || "Media Ready"}
+                          </span>
+                          {mediaFileMeta?.sizeText && (
+                            <span className="text-emerald-300/80 shrink-0">
+                              ({mediaFileMeta.sizeText})
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={clearSelectedMedia}
+                          className="text-rose-300 hover:text-white font-bold uppercase shrink-0"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-xl flex items-center gap-3">
+                  <Icon name="trophy" size={22} className="text-amber-600 shrink-0" />
+                  <p className="font-bold text-amber-900 text-xs sm:text-sm">
+                    Earns{" "}
+                    <span className="text-amber-700 font-black text-base">
+                      {taskModal.task.points} pts
+                    </span>{" "}
+                    for{" "}
+                    {taskModal.task.isTeamTask ? "your squad" : "your squad (duel victory)"}.
+                  </p>
+                </div>
+              </div>
+            )}
+          </Modal>
+
+          {/* Media Viewer Lightbox Modal */}
+          {mediaViewerModal.isOpen && mediaViewerModal.item && (
+            <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative">
+                <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+                  <div>
+                    <h3 className="font-bold text-lg">
+                      {mediaViewerModal.item.userName}'s Submission
+                    </h3>
+                    <p className="text-xs text-slate-400">{mediaViewerModal.item.note}</p>
+                  </div>
+                  <button
+                    onClick={() => setMediaViewerModal({ isOpen: false, item: null })}
+                    className="bg-slate-800 p-2 rounded-full text-slate-300 hover:text-white"
+                  >
+                    <Icon name="x" size={20} />
+                  </button>
+                </div>
+                <div className="p-4 bg-black flex items-center justify-center max-h-[70vh]">
+                  {mediaViewerModal.item.mediaType === "video" ? (
+                    <video
+                      src={mediaViewerModal.item.mediaUrl}
+                      controls
+                      autoPlay
+                      playsInline
+                      className="max-h-[60vh] w-auto rounded-lg"
+                    />
+                  ) : (
+                    <img
+                      src={mediaViewerModal.item.mediaUrl}
+                      alt="Memory"
+                      className="max-h-[60vh] w-auto object-contain rounded-lg"
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Error / Notice Modal */}
+          <Modal
+            isOpen={errorModal.isOpen}
+            onClose={() => setErrorModal({ isOpen: false, title: "Notice", message: "" })}
+            title={errorModal.title}
+            primaryAction={() => setErrorModal({ isOpen: false, title: "Notice", message: "" })}
+            primaryLabel="Got it"
           >
             {errorModal.message}
           </Modal>
@@ -540,1005 +2792,8 @@ export default function App() {
       );
     }
 
-    const unassignedPlayers = registeredPlayers.filter(p => !p.teamId || !teams.some(t => t.id === p.teamId));
-
-    return (
-      <div className="min-h-screen bg-slate-100 text-slate-900 pb-20">
-        <header className="sticky top-0 z-30 bg-slate-900 text-white px-6 py-4 flex justify-between items-center shadow-md">
-          <div className="flex items-center gap-3">
-            <Shield className="text-amber-400" size={28} />
-            <div>
-              <h1 className="text-lg sm:text-xl font-black uppercase tracking-wider leading-none">Organizer Control Panel</h1>
-              <p className="text-xs text-slate-400 mt-1">{teams.length} Squads • {registeredPlayers.length} Players</p>
-            </div>
-          </div>
-          <button 
-            onClick={() => { setPortalMode('player'); setIsOrganizerAuthed(false); }}
-            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-sm font-bold"
-          >
-            Exit Portal
-          </button>
-        </header>
-
-        <main className="max-w-3xl mx-auto p-4 space-y-6">
-          {/* 1. Create & Manage Squads (Change Players Directly Inside Each Squad) */}
-          <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-5 sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-              <h3 className="text-xl font-black uppercase text-amber-900 flex items-center gap-2">
-                <Users size={22} /> 1. Squads & Lineups
-              </h3>
-              {unassignedPlayers.length > 0 && (
-                <span className="text-xs font-bold bg-amber-100 text-amber-900 px-3 py-1 rounded-full">
-                  {unassignedPlayers.length} Unassigned Player{unassignedPlayers.length > 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-
-            <form onSubmit={handleAdminAddTeam} className="flex flex-col sm:flex-row gap-3 mb-6">
-              <input 
-                type="text" 
-                placeholder="New Squad Name (e.g. Gamma Pooters)"
-                value={newTeamName}
-                onChange={(e) => setNewTeamName(e.target.value)}
-                className="flex-1 px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-bold focus:outline-none focus:border-amber-600"
-                required
-              />
-              <select
-                value={newTeamColor}
-                onChange={(e) => setNewTeamColor(e.target.value)}
-                className="px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-bold focus:outline-none"
-              >
-                {SQUAD_COLORS.map(c => (
-                  <option key={c.value} value={c.value}>{c.label} Badge</option>
-                ))}
-              </select>
-              <button type="submit" className="bg-amber-800 hover:bg-amber-900 text-white px-5 py-3 rounded-xl font-bold uppercase shrink-0">
-                + Create Squad
-              </button>
-            </form>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {teams.map(t => {
-                const squadMembers = registeredPlayers.filter(p => p.teamId === t.id);
-                const availableToAdd = registeredPlayers.filter(p => p.teamId !== t.id);
-
-                return (
-                  <div key={t.id} className="bg-slate-50 rounded-2xl border-2 border-slate-200 p-4 flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${t.color || 'bg-amber-600'}`} />
-                          <h4 className="font-black text-slate-900 text-lg truncate">{t.name}</h4>
-                          <span className="text-xs bg-white border border-slate-200 text-slate-700 font-bold px-2 py-0.5 rounded-full shrink-0">
-                            {squadMembers.length}
-                          </span>
-                        </div>
-                        <button 
-                          onClick={() => handleDeleteTeam(t.id)} 
-                          className="text-red-600 hover:bg-red-50 p-1.5 rounded-lg flex items-center gap-1 font-bold text-xs shrink-0"
-                          title="Delete Squad (unassigns its players)"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-
-                      {/* Assigned Members List with Quick Unassign (×) */}
-                      <div className="space-y-2 mb-4">
-                        {squadMembers.length === 0 ? (
-                          <p className="text-xs text-slate-400 italic py-2">No players in this squad yet.</p>
-                        ) : (
-                          squadMembers.map(member => (
-                            <div key={member.id} className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-2xs">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="w-6 h-6 rounded-full bg-amber-100 text-amber-900 font-black text-xs flex items-center justify-center shrink-0">
-                                  {member.displayName.charAt(0).toUpperCase()}
-                                </span>
-                                <span className="font-bold text-slate-800 text-sm truncate">{member.displayName}</span>
-                                <span className="text-[11px] font-mono text-slate-400">#{member.secretCode}</span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleAssignPlayerToTeam(member.id, '')}
-                                className="text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg p-1 transition-colors"
-                                title={`Remove ${member.displayName} from ${t.name}`}
-                              >
-                                <X size={16} />
-                              </button>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Direct Dropdown to Add / Transfer Any Player into This Squad */}
-                    <div className="pt-2 border-t border-slate-200">
-                      <select
-                        value=""
-                        onChange={(e) => handleAssignPlayerToTeam(e.target.value, t.id)}
-                        className="w-full px-3 py-2.5 bg-white rounded-xl border border-slate-300 text-xs font-bold text-slate-700 focus:outline-none focus:border-amber-600"
-                      >
-                        <option value="">+ Add or transfer player to {t.name}...</option>
-                        {availableToAdd.map(p => {
-                          const currentSquad = teams.find(sq => sq.id === p.teamId)?.name || 'Unassigned';
-                          return (
-                            <option key={p.id} value={p.id}>
-                              {p.displayName} ({currentSquad})
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 2. Player Roster & Secret Login Codes */}
-          <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-5 sm:p-6">
-            <h3 className="text-xl font-black mb-4 uppercase text-amber-900 flex items-center gap-2">
-              <UserPlus size={22} /> 2. Player Roster & Squad Assignments
-            </h3>
-            <form onSubmit={handleAdminAddPlayer} className="space-y-3 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <input 
-                  type="text" 
-                  placeholder="Player Name"
-                  value={newPlayerName}
-                  onChange={(e) => setNewPlayerName(e.target.value)}
-                  className="px-4 py-3 bg-white rounded-xl border-2 border-slate-200 font-bold focus:outline-none focus:border-amber-600"
-                  required
-                />
-                <div className="flex gap-1.5">
-                  <input 
-                    type="text" 
-                    placeholder="4-Digit Code"
-                    value={newPlayerCode}
-                    onChange={(e) => setNewPlayerCode(e.target.value)}
-                    className="w-full px-4 py-3 bg-white rounded-xl border-2 border-slate-200 font-bold focus:outline-none focus:border-amber-600"
-                  />
-                  <button
-                    type="button"
-                    onClick={generateRandomCode}
-                    className="px-3 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold shrink-0"
-                    title="Auto-generate 4-digit code"
-                  >
-                    <RefreshCw size={18} />
-                  </button>
-                </div>
-                <select 
-                  value={newPlayerTeamId}
-                  onChange={(e) => setNewPlayerTeamId(e.target.value)}
-                  className="px-4 py-3 bg-white rounded-xl border-2 border-slate-200 font-bold focus:outline-none focus:border-amber-600"
-                >
-                  <option value="">Unassigned</option>
-                  {teams.map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
-              </div>
-              <button type="submit" className="w-full bg-amber-800 hover:bg-amber-900 text-white font-bold py-3 rounded-xl uppercase">
-                + Add Player to Roster
-              </button>
-            </form>
-
-            <div className="space-y-2.5">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                All Players ({registeredPlayers.length}) — Change Squad Anytime
-              </h4>
-              {registeredPlayers.map(p => (
-                <div key={p.id} className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-bold text-slate-900 text-base truncate">{p.displayName}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleCopyCode(p)}
-                      className="inline-flex items-center gap-1 text-xs bg-white border border-slate-200 hover:border-amber-500 px-2.5 py-1 rounded-lg font-mono font-bold text-slate-700"
-                      title="Copy login credentials"
-                    >
-                      <Key size={12} className="text-amber-600" />
-                      {p.secretCode}
-                      {copiedPlayerId === p.id ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} className="text-slate-400" />}
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <select
-                      value={teams.some(t => t.id === p.teamId) ? p.teamId : ''}
-                      onChange={(e) => handleAssignPlayerToTeam(p.id, e.target.value)}
-                      className={`flex-1 sm:w-44 px-3 py-2 rounded-xl border text-xs font-bold focus:outline-none ${
-                        teams.some(t => t.id === p.teamId)
-                          ? 'bg-amber-50 border-amber-300 text-amber-950'
-                          : 'bg-slate-200 border-slate-300 text-slate-700'
-                      }`}
-                    >
-                      <option value="">Unassigned</option>
-                      {teams.map(t => (
-                        <option key={t.id} value={t.id}>{t.name}</option>
-                      ))}
-                    </select>
-                    <button 
-                      onClick={() => handleDeletePlayer(p.id)} 
-                      className="text-red-600 hover:bg-red-50 p-2 rounded-lg shrink-0"
-                      title="Delete Player"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* 3. Create Tasks & Duels */}
-          <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-5 sm:p-6">
-            <h3 className="text-xl font-black mb-4 uppercase text-amber-900">3. Create Task or 1v1 Duel</h3>
-            <form onSubmit={handleAdminAddTask} className="space-y-4">
-              <input 
-                type="text" 
-                placeholder="Task Title"
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-bold focus:outline-none"
-                required
-              />
-              <textarea 
-                placeholder="Description & Rules"
-                value={newTaskDesc}
-                onChange={(e) => setNewTaskDesc(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-medium focus:outline-none h-20"
-              />
-              <div className="grid grid-cols-2 gap-4">
-                <input 
-                  type="number" 
-                  value={newTaskPoints}
-                  onChange={(e) => setNewTaskPoints(e.target.value)}
-                  className="px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-bold focus:outline-none"
-                  min="5" max="500"
-                />
-                <select 
-                  value={newTaskIsTeam ? 'team' : '1v1'}
-                  onChange={(e) => setNewTaskIsTeam(e.target.value === 'team')}
-                  className="px-4 py-3 bg-slate-50 rounded-xl border-2 border-slate-200 font-bold focus:outline-none"
-                >
-                  <option value="team">Team Task (Group)</option>
-                  <option value="1v1">1v1 Head-to-Head Duel</option>
-                </select>
-              </div>
-
-              {!newTaskIsTeam && (
-                <div className="grid grid-cols-2 gap-4 bg-purple-50 p-4 rounded-xl border border-purple-200">
-                  <select 
-                    value={newTaskP1}
-                    onChange={(e) => setNewTaskP1(e.target.value)}
-                    className="w-full px-3 py-2 bg-white rounded-lg font-bold border border-purple-300 text-sm"
-                  >
-                    <option value="">-- Player 1 --</option>
-                    {registeredPlayers.map(p => (
-                      <option key={p.id} value={p.id}>{p.displayName}</option>
-                    ))}
-                  </select>
-                  <select 
-                    value={newTaskP2}
-                    onChange={(e) => setNewTaskP2(e.target.value)}
-                    className="w-full px-3 py-2 bg-white rounded-lg font-bold border border-purple-300 text-sm"
-                  >
-                    <option value="">-- Player 2 --</option>
-                    {registeredPlayers.map(p => (
-                      <option key={p.id} value={p.id}>{p.displayName}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <button type="submit" className="w-full bg-amber-800 hover:bg-amber-900 text-white font-black py-4 rounded-xl uppercase">
-                Publish Task / Duel
-              </button>
-            </form>
-
-            <div className="mt-6 space-y-2">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Existing Tasks</h4>
-              {tasks.map(t => (
-                <div key={t.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <div>
-                    <span className="font-bold text-slate-900">{t.title}</span>
-                    <span className="ml-2 text-xs bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded">
-                      {t.isTeamTask ? 'Team' : '1v1'} • {t.points} pts
-                    </span>
-                  </div>
-                  <button onClick={() => handleDeleteTask(t.id)} className="text-red-600 hover:text-red-800 p-1.5">
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // --- PLAYER LOGIN SCREEN ---
-  if (!currentLoggedInPlayer) {
-    return (
-      <div className="min-h-screen bg-amber-950 text-white p-6 flex flex-col items-center justify-center">
-        <Sparkles size={64} className="mb-4 text-amber-400 animate-pulse" />
-        <h1 className="text-4xl font-black mb-2 text-center uppercase tracking-tight">Pooters Hunt</h1>
-        <p className="text-amber-200 mb-6 text-center text-base font-medium">Log in with your name and secret code</p>
-        
-        <form onSubmit={handlePlayerLogin} className="w-full max-w-sm flex flex-col gap-3.5">
-          <input 
-            type="text" 
-            placeholder="Your Pooter Name (e.g. Alice)..." 
-            value={playerLoginName}
-            onChange={(e) => setPlayerLoginName(e.target.value)}
-            className="w-full px-5 py-4 rounded-xl text-lg text-slate-900 font-bold placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-amber-500 shadow-lg"
-            required
-          />
-          <input 
-            type="password" 
-            placeholder="Secret Code (e.g. 1111)..." 
-            value={playerLoginCode}
-            onChange={(e) => setPlayerLoginCode(e.target.value)}
-            className="w-full px-5 py-4 rounded-xl text-lg text-slate-900 font-bold placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-amber-500 shadow-lg"
-            required
-          />
-
-          <button type="submit" className="w-full bg-amber-500 hover:bg-amber-400 text-amber-950 font-black text-xl py-4 rounded-xl shadow-lg uppercase tracking-wider mt-1 transition-colors">
-            Enter Hunt
-          </button>
-        </form>
-
-        {/* Quick-Fill Demo Player Pills */}
-        {registeredPlayers.length > 0 && (
-          <div className="mt-6 w-full max-w-sm">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-amber-300/70 text-center mb-2">
-              Quick Demo Login (Tap to Autofill)
-            </p>
-            <div className="flex flex-wrap justify-center gap-2">
-              {registeredPlayers.slice(0, 6).map(p => {
-                const sq = teams.find(t => t.id === p.teamId);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => quickFillDemoPlayer(p)}
-                    className="bg-amber-900/80 hover:bg-amber-800 border border-amber-700/70 px-3 py-1.5 rounded-full text-xs font-bold text-amber-100 flex items-center gap-1.5 transition-colors"
-                  >
-                    <span>{p.displayName}</span>
-                    <span className="text-amber-400 font-mono">({p.secretCode})</span>
-                    {sq && <span className="text-[10px] text-amber-300/70">• {sq.name.split(' ')[0]}</span>}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        <button 
-          onClick={() => setPortalMode('organizer')}
-          className="mt-8 flex items-center gap-2 bg-amber-900/50 hover:bg-amber-900 px-4 py-2.5 rounded-xl border border-amber-800 text-amber-200 text-sm font-bold uppercase tracking-wider transition-colors"
-        >
-          <Shield size={16} /> Organizer Portal
-        </button>
-
-        <Modal 
-          isOpen={errorModal.isOpen} 
-          onClose={() => setErrorModal({ isOpen: false, message: '' })}
-          title="Login Notice"
-          primaryAction={() => setErrorModal({ isOpen: false, message: '' })}
-          primaryLabel="OK"
-        >
-          {errorModal.message}
-        </Modal>
-      </div>
-    );
-  }
-
-  // --- PLAYER DASHBOARD TABS ---
-  const renderTasksTab = () => {
-    const teamTasks = tasks.filter(t => t.isTeamTask);
-    const soloTasks = tasks.filter(t => !t.isTeamTask);
-
-    return (
-      <div className="animate-in fade-in pb-28 space-y-8 pt-4">
-        {!currentTeam && (
-          <div className="bg-amber-100 border-2 border-amber-300 text-amber-950 p-4 rounded-2xl flex items-start gap-3">
-            <AlertCircle className="shrink-0 mt-0.5 text-amber-700" size={20} />
-            <div className="text-sm font-bold">
-              You are currently Unassigned! Ask the Organizer to assign you to a squad so you can submit tasks and earn points.
-            </div>
-          </div>
-        )}
-
-        {/* TEAM TASKS */}
-        <section>
-          <div className="flex items-center gap-2 mb-4 px-2">
-            <Users className="text-amber-800" size={24} />
-            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Team Tasks</h2>
-          </div>
-          <div className="space-y-4">
-            {teamTasks.length === 0 ? (
-              <p className="text-slate-500 italic p-4 bg-white rounded-xl">No team tasks available yet.</p>
-            ) : teamTasks.map(task => {
-              const isCompleted = progress.some(p => p.teamId === currentTeam?.id && p.taskId === task.id);
-              return (
-                <div 
-                  key={task.id} 
-                  onClick={() => !isCompleted && openTaskSubmissionModal(task)}
-                  className={`relative p-5 rounded-2xl shadow-sm border-2 transition-transform ${isCompleted ? 'bg-amber-50 border-amber-200 opacity-75' : 'bg-white border-slate-200 active:scale-[0.98] cursor-pointer'}`}
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-xl ${isCompleted ? 'bg-amber-200 text-amber-900' : 'bg-amber-100 text-amber-800'}`}>
-                        <Users size={24} />
-                      </div>
-                      <h3 className="font-bold text-xl text-slate-900 leading-tight">{task.title}</h3>
-                    </div>
-                    <span className="font-black text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg text-sm border border-amber-200 shrink-0">
-                      {task.points} PTS
-                    </span>
-                  </div>
-                  <p className="text-slate-600 font-medium text-base mt-3 leading-snug pr-8">{task.description}</p>
-                  {isCompleted && (
-                    <div className="absolute bottom-5 right-5 text-amber-700 bg-amber-200 rounded-full p-1">
-                      <CheckCircle size={28} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* 1V1 DUELS */}
-        <section>
-          <div className="flex items-center gap-2 mb-4 px-2">
-            <Swords className="text-amber-700" size={24} />
-            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">1v1 Head-to-Head Duels</h2>
-          </div>
-          <div className="space-y-4">
-            {soloTasks.length === 0 ? (
-              <p className="text-slate-500 italic p-4 bg-white rounded-xl">No duels assigned yet.</p>
-            ) : soloTasks.map(task => {
-              const isCompleted = progress.some(p => p.taskId === task.id);
-              const winningSubmission = progress.find(p => p.taskId === task.id);
-              
-              const p1 = registeredPlayers.find(p => p.id === task.p1Id)?.displayName || 'Player 1';
-              const p2 = registeredPlayers.find(p => p.id === task.p2Id)?.displayName || 'Player 2';
-
-              return (
-                <div 
-                  key={task.id} 
-                  onClick={() => !isCompleted && openTaskSubmissionModal(task)}
-                  className={`relative p-5 rounded-2xl shadow-sm border-2 transition-transform ${isCompleted ? 'bg-amber-50 border-amber-200 opacity-75' : 'bg-white border-slate-200 active:scale-[0.98] cursor-pointer'}`}
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-xl ${isCompleted ? 'bg-amber-200 text-amber-900' : 'bg-purple-100 text-purple-800'}`}>
-                        <Swords size={24} />
-                      </div>
-                      <h3 className="font-bold text-xl text-slate-900 leading-tight">{task.title}</h3>
-                    </div>
-                    <span className="font-black text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg text-sm border border-amber-200 shrink-0">
-                      {task.points} PTS
-                    </span>
-                  </div>
-                  <p className="text-slate-600 font-medium text-base mt-2 mb-3 leading-snug">{task.description}</p>
-                  
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-center text-sm font-bold text-slate-700 mb-2">
-                    <span className="text-amber-900">{p1}</span>
-                    <span className="text-xs bg-amber-200 px-2 py-0.5 rounded text-amber-950">VS</span>
-                    <span className="text-amber-900">{p2}</span>
-                  </div>
-
-                  {isCompleted ? (
-                    <div className="text-xs font-bold text-amber-800 bg-amber-100 px-3 py-1.5 rounded-lg flex items-center justify-between">
-                      <span>Won by: {winningSubmission?.userName}</span>
-                      <CheckCircle size={18} />
-                    </div>
-                  ) : (
-                    <div className="text-xs font-bold uppercase tracking-wider text-purple-700 bg-purple-50 px-2.5 py-1 rounded-md inline-block">
-                      Tap to submit duel result
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      </div>
-    );
-  };
-
-  const renderGalleryTab = () => {
-    const mediaEntries = [...progress]
-      .filter(item => item.mediaUrl || item.isExpiredBlob)
-      .sort((a, b) => b.timestamp - a.timestamp);
-
-    return (
-      <div className="animate-in fade-in pb-28 pt-4">
-        <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight mb-6 px-2 text-center flex items-center justify-center gap-3">
-          <Camera className="text-amber-600" size={30} />
-          Media Gallery
-        </h2>
-
-        {mediaEntries.length === 0 ? (
-          <div className="bg-white p-8 rounded-2xl text-center border-2 border-slate-200">
-            <p className="text-slate-500 font-medium italic">No photos or videos uploaded yet!</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {mediaEntries.map((item, idx) => {
-              const team = teams.find(t => t.id === item.teamId);
-              const task = tasks.find(t => t.id === item.taskId);
-              return (
-                <div key={item.id || idx} className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 overflow-hidden flex flex-col">
-                  <div 
-                    onClick={() => item.mediaUrl && setMediaViewerModal({ isOpen: true, item })}
-                    className="relative aspect-video bg-slate-900 flex items-center justify-center cursor-pointer group overflow-hidden"
-                  >
-                    {item.isExpiredBlob && !item.mediaUrl ? (
-                      <div className="text-slate-400 text-xs font-bold p-4 text-center">
-                        <Film size={28} className="mx-auto mb-1 opacity-60" />
-                        Session Video (Uploaded earlier)
-                      </div>
-                    ) : item.mediaType === 'video' ? (
-                      <>
-                        <video 
-                          src={item.mediaUrl} 
-                          className="w-full h-full object-cover" 
-                          muted 
-                          playsInline 
-                        />
-                        <div className="absolute inset-0 bg-black/35 flex items-center justify-center">
-                          <div className="w-12 h-12 rounded-full bg-amber-500 text-amber-950 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                            <Play size={22} className="ml-0.5 fill-current" />
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <img src={item.mediaUrl} alt={task?.title || 'Submission'} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                          <Eye size={24} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </div>
-                      </>
-                    )}
-                    <span className="absolute top-2.5 right-2.5 bg-black/75 text-white text-[10px] font-black uppercase px-2.5 py-1 rounded-full">
-                      {item.mediaType === 'video' ? 'Video' : 'Photo'}
-                    </span>
-                  </div>
-                  <div className="p-4 flex-1 flex flex-col justify-between">
-                    <div>
-                      <div className="flex justify-between items-start gap-2">
-                        <h3 className="font-black text-slate-900 text-base leading-tight">{task?.title || 'Challenge'}</h3>
-                        <span className="text-xs font-black text-amber-700 shrink-0">+{item.points} pts</span>
-                      </div>
-                      <p className="text-xs font-bold text-amber-900 mt-0.5">
-                        {item.userName} • {team?.name || 'Squad'}
-                      </p>
-                      {item.note && (
-                        <p className="text-xs text-slate-600 italic mt-2">"{item.note}"</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderFeedTab = () => {
-    const sortedFeed = [...progress].sort((a, b) => b.timestamp - a.timestamp);
-
-    return (
-      <div className="animate-in fade-in pb-28 pt-4">
-        <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight mb-6 px-2 text-center flex items-center justify-center gap-3">
-          <Zap className="text-amber-600" size={32} />
-          Live Activity Feed
-        </h2>
-
-        {sortedFeed.length === 0 ? (
-          <div className="bg-white p-8 rounded-2xl text-center border-2 border-slate-200">
-            <p className="text-slate-500 font-medium italic">No activity yet. Complete tasks to get the feed moving!</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {sortedFeed.map((item, index) => {
-              const team = teams.find(t => t.id === item.teamId);
-              const task = tasks.find(t => t.id === item.taskId);
-              return (
-                <div key={item.id || index} className="bg-white p-4 rounded-2xl shadow-sm border-2 border-slate-200 flex items-start gap-3">
-                  <div className="bg-amber-100 text-amber-900 p-2.5 rounded-xl shrink-0 mt-0.5">
-                    <CheckCircle size={22} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-start">
-                      <span className="font-black text-slate-900 text-base">{item.userName}</span>
-                      <span className="font-black text-amber-700 text-sm bg-amber-50 px-2 py-0.5 rounded">+{item.points} pts</span>
-                    </div>
-                    <p className="text-slate-600 text-sm font-medium mt-0.5">
-                      Completed <span className="font-bold text-slate-800">{task?.title || 'Task'}</span> for <span className="text-amber-900 font-bold">{team?.name || 'Squad'}</span>
-                    </p>
-                    {item.note && (
-                      <p className="mt-2 text-xs text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100 italic">
-                        "{item.note}"
-                      </p>
-                    )}
-                    {item.mediaUrl && (
-                      <div className="mt-3">
-                        {item.mediaType === 'video' ? (
-                          <button 
-                            onClick={() => setMediaViewerModal({ isOpen: true, item })}
-                            className="flex items-center gap-2 bg-purple-50 text-purple-700 px-3 py-2 rounded-xl text-xs font-bold border border-purple-200 hover:bg-purple-100"
-                          >
-                            <Film size={16} /> Play Video Memory
-                          </button>
-                        ) : (
-                          <div 
-                            onClick={() => setMediaViewerModal({ isOpen: true, item })}
-                            className="relative w-28 h-28 rounded-xl overflow-hidden border-2 border-slate-200 cursor-pointer hover:opacity-90"
-                          >
-                            <img src={item.mediaUrl} alt="Submission" className="w-full h-full object-cover" />
-                            <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                              <Eye size={20} className="text-white" />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderLeaderboardTab = () => {
-    return (
-      <div className="animate-in fade-in pb-28 pt-4">
-        <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight mb-6 px-2 text-center flex items-center justify-center gap-3">
-          <Trophy className="text-amber-500" size={32} />
-          Squad Leaderboard
-        </h2>
-        
-        <div className="space-y-4">
-          {leaderBoard.map((team, index) => (
-            <div 
-              key={team.id} 
-              className={`flex items-center p-5 rounded-2xl shadow-sm border-2 ${team.id === currentTeam?.id ? 'bg-amber-900 border-amber-900 text-white transform scale-[1.02] shadow-lg' : 'bg-white border-slate-200 text-slate-900'}`}
-            >
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg shrink-0 mr-4 ${index === 0 ? 'bg-amber-400 text-amber-950' : index === 1 ? 'bg-slate-300 text-slate-800' : 'bg-amber-700 text-amber-100'}`}>
-                #{index + 1}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-xl truncate">{team.name}</h3>
-                {team.id === currentTeam?.id && <p className="text-sm font-medium text-amber-300">Your Squad</p>}
-              </div>
-              <div className="font-black text-2xl">
-                {team.score}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  const renderProfileTab = () => {
-    return (
-      <div className="animate-in fade-in pb-28 pt-4">
-         <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight mb-6 px-2">Pooter Profile</h2>
-         
-         <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-6 mb-6">
-            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Your Name</h3>
-            <p className="text-2xl font-black text-slate-900 mb-6">{currentLoggedInPlayer.displayName}</p>
-            
-            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Assigned Squad</h3>
-            <p className="text-2xl font-black text-amber-800 mb-6">{currentTeam?.name || 'Unassigned'}</p>
-
-            <button 
-              onClick={() => setCurrentLoggedInPlayerId(null)}
-              className="w-full flex items-center justify-center gap-2 bg-red-50 text-red-700 hover:bg-red-100 font-bold text-lg py-4 rounded-xl border border-red-200 transition-colors"
-            >
-              <LogOut size={20} />
-              Log Out
-            </button>
-         </div>
-
-         <div className="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-6">
-           <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight mb-4 flex items-center gap-2">
-             <Users size={20} className="text-slate-500" />
-             Squad Roster ({teamMembers.length})
-           </h3>
-           {teamMembers.length === 0 ? (
-             <p className="text-slate-500 italic text-sm">No teammates assigned yet.</p>
-           ) : (
-             <div className="space-y-3">
-               {teamMembers.map(member => (
-                 <div key={member.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                   <div className="w-10 h-10 bg-amber-100 text-amber-900 rounded-full flex items-center justify-center font-black text-lg">
-                     {member.displayName.charAt(0).toUpperCase()}
-                   </div>
-                   <span className="font-bold text-slate-800 text-lg">{member.displayName}</span>
-                   {member.id === currentLoggedInPlayer.id && <span className="ml-auto text-xs font-bold text-amber-700 uppercase bg-amber-100 px-2.5 py-1 rounded">You</span>}
-                 </div>
-               ))}
-             </div>
-           )}
-         </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-50 font-sans selection:bg-amber-200">
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-amber-950 text-white px-4 py-4 shadow-md flex justify-between items-center">
-        <div>
-          <h1 className="text-xl font-black uppercase tracking-widest leading-none">Pooters Hunt</h1>
-          <p className="text-amber-300 font-bold text-sm mt-1">
-            {currentLoggedInPlayer.displayName} • {currentTeam?.name || 'Unassigned'}
-          </p>
-        </div>
-        <div className="bg-amber-900 px-4 py-2 rounded-xl flex items-center gap-2 border border-amber-800 shadow-inner">
-          <Trophy size={18} className="text-amber-400" />
-          <span className="font-black text-xl">{leaderBoard.find(t => t.id === currentTeam?.id)?.score || 0}</span>
-        </div>
-      </header>
-
-      {/* Main Content Area */}
-      <main className="max-w-xl mx-auto px-4">
-        {activeTab === 'tasks' && renderTasksTab()}
-        {activeTab === 'gallery' && renderGalleryTab()}
-        {activeTab === 'feed' && renderFeedTab()}
-        {activeTab === 'leaderboard' && renderLeaderboardTab()}
-        {activeTab === 'profile' && renderProfileTab()}
-      </main>
-
-      {/* Bottom Navigation (5 Tabs) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t-2 border-slate-200 pb-safe">
-        <div className="max-w-xl mx-auto flex justify-around p-1.5">
-          <button 
-            onClick={() => setActiveTab('tasks')}
-            className={`flex flex-col items-center p-2 rounded-2xl flex-1 transition-colors ${activeTab === 'tasks' ? 'text-amber-800 bg-amber-50' : 'text-slate-500'}`}
-          >
-            <Compass size={20} className="mb-1" />
-            <span className="text-[10px] font-black uppercase">Tasks</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('gallery')}
-            className={`flex flex-col items-center p-2 rounded-2xl flex-1 transition-colors ${activeTab === 'gallery' ? 'text-amber-800 bg-amber-50' : 'text-slate-500'}`}
-          >
-            <Camera size={20} className="mb-1" />
-            <span className="text-[10px] font-black uppercase">Media</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('feed')}
-            className={`flex flex-col items-center p-2 rounded-2xl flex-1 transition-colors ${activeTab === 'feed' ? 'text-amber-800 bg-amber-50' : 'text-slate-500'}`}
-          >
-            <Zap size={20} className="mb-1" />
-            <span className="text-[10px] font-black uppercase">Feed</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('leaderboard')}
-            className={`flex flex-col items-center p-2 rounded-2xl flex-1 transition-colors ${activeTab === 'leaderboard' ? 'text-amber-800 bg-amber-50' : 'text-slate-500'}`}
-          >
-            <Trophy size={20} className="mb-1" />
-            <span className="text-[10px] font-black uppercase">Rank</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('profile')}
-            className={`flex flex-col items-center p-2 rounded-2xl flex-1 transition-colors ${activeTab === 'profile' ? 'text-amber-800 bg-amber-50' : 'text-slate-500'}`}
-          >
-            <Users size={20} className="mb-1" />
-            <span className="text-[10px] font-black uppercase">Squad</span>
-          </button>
-        </div>
-      </nav>
-
-      {/* Task Submission Modal with Bulletproof Photo & Video Upload */}
-      <Modal
-        isOpen={taskModal.isOpen}
-        onClose={() => setTaskModal({ isOpen: false, task: null })}
-        title="Submit Task Proof"
-        primaryAction={handleCompleteTask}
-        primaryLabel={isProcessingMedia ? "Processing Media..." : "Submit & Score Points"}
-        secondaryLabel="Cancel"
-      >
-        {taskModal.task && (
-          <div className="space-y-4">
-            <div>
-              <p className="text-slate-900 font-black text-lg leading-tight">{taskModal.task.title}</p>
-              <p className="text-slate-600 text-xs mt-1">{taskModal.task.description}</p>
-            </div>
-            
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Note / Caption
-              </label>
-              <input 
-                type="text" 
-                placeholder="Add a fun caption..."
-                value={submissionText}
-                onChange={(e) => setSubmissionText(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-900 font-medium text-sm focus:border-amber-500 focus:outline-none"
-              />
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                  <Camera size={14} /> Photo or Video Proof
-                </label>
-                <div className="flex bg-slate-100 p-1 rounded-lg">
-                  <button 
-                    type="button" 
-                    onClick={() => setMediaInputMode('file')}
-                    className={`text-xs font-bold px-2.5 py-1 rounded-md ${mediaInputMode === 'file' ? 'bg-amber-800 text-white' : 'text-slate-600'}`}
-                  >
-                    Upload File
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={() => setMediaInputMode('url')}
-                    className={`text-xs font-bold px-2.5 py-1 rounded-md ${mediaInputMode === 'url' ? 'bg-amber-800 text-white' : 'text-slate-600'}`}
-                  >
-                    Paste URL
-                  </button>
-                </div>
-              </div>
-
-              {mediaInputMode === 'file' ? (
-                <div className="space-y-2">
-                  {/* Direct visible label wrapping sr-only input — never blocked by sandboxed previews */}
-                  <label className="cursor-pointer block w-full bg-amber-100 hover:bg-amber-200 active:bg-amber-300 text-amber-950 font-black py-3.5 px-4 rounded-xl text-center border-2 border-dashed border-amber-400 transition-colors">
-                    <span className="flex items-center justify-center gap-2 text-sm">
-                      <Upload size={18} />
-                      {isProcessingMedia ? 'Optimizing Photo/Video...' : 'Tap to Select Photo or Video'}
-                    </span>
-                    <input 
-                      type="file" 
-                      accept="image/*,video/*"
-                      onChange={handleFileUpload}
-                      className="sr-only"
-                    />
-                  </label>
-
-                  <div className="flex gap-2">
-                    <button 
-                      type="button" 
-                      onClick={() => selectSampleMedia('image')}
-                      className="text-xs bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-bold py-2 px-3 rounded-xl flex-1 flex items-center justify-center gap-1.5"
-                    >
-                      <ImageIcon size={14} /> Sample Photo
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={() => selectSampleMedia('video')}
-                      className="text-xs bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 font-bold py-2 px-3 rounded-xl flex-1 flex items-center justify-center gap-1.5"
-                    >
-                      <Video size={14} /> Sample Video
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <input 
-                    type="url" 
-                    placeholder="https://... image or .mp4 URL"
-                    value={mediaUrlInput}
-                    onChange={(e) => setMediaUrlInput(e.target.value)}
-                    className="flex-1 px-3.5 py-2.5 bg-slate-50 rounded-xl border-2 border-slate-200 text-slate-900 font-medium text-sm focus:border-amber-500 focus:outline-none"
-                  />
-                  <button 
-                    type="button"
-                    onClick={handleUrlSubmit}
-                    className="bg-amber-800 hover:bg-amber-900 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase"
-                  >
-                    Attach
-                  </button>
-                </div>
-              )}
-
-              {/* Live Media Preview Thumbnail / Video Player Before Submitting */}
-              {mediaFileUrl && (
-                <div className="bg-slate-900 rounded-xl overflow-hidden border-2 border-emerald-500 shadow-md">
-                  <div className="relative max-h-48 flex items-center justify-center bg-black">
-                    {mediaFileType === 'video' ? (
-                      <video 
-                        src={mediaFileUrl} 
-                        controls 
-                        playsInline 
-                        className="max-h-48 w-full object-contain"
-                      />
-                    ) : (
-                      <img 
-                        src={mediaFileUrl} 
-                        alt="Selected preview" 
-                        className="max-h-48 w-full object-contain" 
-                      />
-                    )}
-                  </div>
-                  <div className="px-3 py-2 bg-emerald-950 text-emerald-100 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-1.5 truncate pr-2">
-                      <CheckCircle size={14} className="text-emerald-400 shrink-0" />
-                      <span className="font-bold truncate">{mediaFileMeta?.name || 'Media Ready'}</span>
-                      {mediaFileMeta?.sizeText && (
-                        <span className="text-emerald-300/80 shrink-0">({mediaFileMeta.sizeText})</span>
-                      )}
-                    </div>
-                    <button 
-                      type="button"
-                      onClick={clearSelectedMedia}
-                      className="text-rose-300 hover:text-white font-bold uppercase shrink-0"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-xl flex items-center gap-3">
-               <Trophy className="text-amber-600 shrink-0" size={22} />
-               <p className="font-bold text-amber-900 text-xs sm:text-sm">
-                 Earns <span className="text-amber-700 font-black text-base">{taskModal.task.points} pts</span> for {taskModal.task.isTeamTask ? 'your squad' : 'your squad (duel victory)'}.
-               </p>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* Media Viewer Modal */}
-      {mediaViewerModal.isOpen && mediaViewerModal.item && (
-        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative">
-            <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
-              <div>
-                <h3 className="font-bold text-lg">{mediaViewerModal.item.userName}'s Submission</h3>
-                <p className="text-xs text-slate-400">{mediaViewerModal.item.note}</p>
-              </div>
-              <button 
-                onClick={() => setMediaViewerModal({ isOpen: false, item: null })}
-                className="bg-slate-800 p-2 rounded-full text-slate-300 hover:text-white"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-4 bg-black flex items-center justify-center max-h-[70vh]">
-              {mediaViewerModal.item.mediaType === 'video' ? (
-                <video src={mediaViewerModal.item.mediaUrl} controls autoPlay playsInline className="max-h-[60vh] w-auto rounded-lg" />
-              ) : (
-                <img src={mediaViewerModal.item.mediaUrl} alt="Memory" className="max-h-[60vh] w-auto object-contain rounded-lg" />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <Modal 
-          isOpen={errorModal.isOpen} 
-          onClose={() => setErrorModal({ isOpen: false, message: '' })}
-          title="Notice"
-          primaryAction={() => setErrorModal({ isOpen: false, message: '' })}
-          primaryLabel="Got it"
-        >
-          {errorModal.message}
-      </Modal>
-
-      <style dangerouslySetInnerHTML={{__html: `
-        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-        .fade-in { animation: fadeIn 0.2s ease-in-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-      `}} />
-    </div>
-  );
-}
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
